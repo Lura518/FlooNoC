@@ -90,8 +90,24 @@ package floo_pkg;
     /// Multicast communication
     Multicast = 2'd1,
     /// Reduction of AXI B-responses
-    CollectB = 2'd2
+    CollectB = 2'd2,
+    /// Offload Reduction
+    OffloadReduction = 2'd3
   } collect_comm_e;
+
+  /// Different offloadable reduction
+  typedef enum logic [3:0] { 
+    F_Add     = 4'b0000, // FP Addition
+    F_Mul     = 4'b0001, // FP Multiplication
+    F_Min     = 4'b0010, // FP Min
+    F_Max     = 4'b0011, // FP Max
+    A_Add     = 4'b1000, // Atomic Add (signed)
+    A_Mul     = 4'b1001, // (Non-) Atomic (signed)
+    A_Min_S   = 4'b1010, // Atomic Min (signed)
+    A_Min_U   = 4'b1110, // Atomic Min (unsigned)
+    A_Max_S   = 4'b1011, // Atomic Max (signed)
+    A_Max_U   = 4'b1111  // Atomic Max (unsigned)
+  } reduction_op_e;
 
   /// The types of AXI channels in narrow-wide AXI network interfaces
   typedef enum logic [3:0] {
