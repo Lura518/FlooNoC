@@ -38,10 +38,10 @@ module floo_reduction_wrapper import floo_pkg::*; #(
   localparam int unsigned FLEN = 64;
 
   // Variable
-  logic comp_req_valid[RdElements];
-  logic comp_req_ready[RdElements];
-  logic comp_resp_valid[RdElements];
-  logic comp_resp_ready[RdElements];
+  logic [RdElements] comp_req_valid;
+  logic [RdElements] comp_req_ready;
+  logic [RdElements] comp_resp_valid;
+  logic [RdElements] comp_resp_ready;
 
   // Fork the hadshaking
   stream_fork #(
@@ -83,7 +83,7 @@ module floo_reduction_wrapper import floo_pkg::*; #(
       floo_reduction_alu #(
         .ID                   (i),
         .DEBUG_PRINT_TRACE    (DEBUG_PRINT_TRACE)
-      ) (
+      ) i_alu (
         .clk_i                (clk_i),
         .rst_ni               (rst_ni),
         .flush_i              (flush_i),
@@ -111,8 +111,8 @@ module floo_reduction_wrapper import floo_pkg::*; #(
   );
 
   // Sanity Check
-  `ASSERT_INIT(Invalid_ALU_or_FPU, ((FPU_ACTIVE ^ ALU_ACTIVE) == 1'b0))
-  `ASSERT_INIT(Invalid_Config, ($bits(RdData_t) != (RdElements*FLEN)))
+  `ASSERT_INIT(Invalid_ALU_or_FPU, !((FPU_ACTIVE ^ ALU_ACTIVE) == 1'b0))
+  `ASSERT_INIT(Invalid_Config, !($bits(RdData_t) != (RdElements*FLEN)))
 
 endmodule
 
@@ -299,6 +299,9 @@ module floo_reduction_alu import floo_pkg::*; #(
     .out_ready_i          (alu_resp_ready_i)
   );
 
+  // Assign the output signal of the ALU
+  assign alu_resp_data_o = alu_out.result;
+
   // Print the Status info
   if(DEBUG_PRINT_TRACE) begin
     int cnt_in;
@@ -310,13 +313,13 @@ module floo_reduction_alu import floo_pkg::*; #(
         @(posedge clk_i);
         // Print the incoming operation
         if((alu_req_valid_i == 1'b1) && (alu_req_ready_o == 1'b1)) begin
-          $display($time, "[tb %d - %d] ALU Ops: [%d, %d] ALU Op: %s", ID, cnt_in, alu_req_op1_i, alu_req_op2_i, genOpAlu(alu_req_type_i));
+          $display($time, "[ALU %1d - Itr %1d] > ALU Ops: [%h, %h] ALU Op: %s", ID, cnt_in, alu_req_op1_i, alu_req_op2_i, genOpAlu(alu_req_type_i));
           cnt_in = cnt_in + 1;
         end
 
         // Print Result / Status of alu
         if((alu_resp_valid_o == 1'b1) && (alu_resp_ready_i == 1'b1)) begin
-          $display($time, "[tb %d - %d] ALU Result: %d", ID, cnt_out, alu_out.result);
+          $display($time, "[ALU %1d - Itr %1d] > ALU Result: %h", ID, cnt_out, alu_out.result);
           cnt_out = cnt_out + 1;
         end
       end
@@ -524,13 +527,13 @@ module floo_reduction_fpu import floo_pkg::*; #(
         @(posedge clk_i);
         // Print the incoming operation
         if((fpu_req_valid_i == 1'b1) && (fpu_req_ready_o == 1'b1)) begin
-          $display($time, "[tb %d - %d] FPU Ops: [%f, %f] FPU Op: %s", ID, cnt_in, fpu_req_op1_i, fpu_req_op2_i, genOp(fpu_req_type_i));
+          $display($time, "[FPU %1d - Itr %1d] > FPU Ops: [%f, %f] FPU Op: %s", ID, cnt_in, fpu_req_op1_i, fpu_req_op2_i, genOp(fpu_req_type_i));
           cnt_in = cnt_in + 1;
         end
 
         // Print Result / Status of FPU
         if((fpu_resp_valid_o == 1'b1) && (fpu_resp_ready_i == 1'b1)) begin
-          $display($time, "[tb %d - %d] FPU Result: %f FPU Status: %s", ID, cnt_out, fpu_out.result, genBitRep(fpu_out.status));
+          $display($time, "[FPU %1d - Itr %1d] > FPU Result: %f FPU Status: %s", ID, cnt_out, fpu_out.result, genBitRep(fpu_out.status));
           cnt_out = cnt_out + 1;
         end
       end
@@ -671,6 +674,8 @@ end else begin
   assign fmt_q = fmt_i;
   assign vector_mode_q = vector_mode_i;
   assign tag_q = tag_i;
+  assign in_valid_q = in_valid_i;
+  assign in_ready_o = in_ready_q;
 end
 
 // Implement ALU here
@@ -705,7 +710,7 @@ always_comb begin : gen_minmax
   end
 
   // Calc the min / max signal in the same case
-  if($signed({sgn & operands_32[0][31], operands_32[0]}) > $signed({sgn & operands_32[1][31], operands_32[1]})) begin
+  if($signed({sign & operands_32[0][31], operands_32[0]}) > $signed({sign & operands_32[1][31], operands_32[1]})) begin
     max_res_32 = operands_32[0];
     min_res_32 = operands_32[1];
   end else begin
@@ -727,6 +732,7 @@ always_comb begin : result_mux
 end
 
 // Sign extend the 32 Bit result
+// TODO (raroth): What happens if result is 32Bit unsigned? Take a look!
 assign result_d = {{32{res_32[31]}},res_32};
 
 // Bypass tag & handshake
@@ -755,13 +761,15 @@ end else begin
   assign result_o = result_d;
   assign status_o = status_d;
   assign tag_o = tag_d;
+  assign out_valid_o = out_valid_d;
+  assign out_ready_d = out_ready_i;
 end
 
 /* Assertions for the module */
 
 // Currently we only support 32Bit operations! Could be extended in the future
-`ASSERT(Invalid_Input, (fmt_i != alu_pkg::INT32) && (fmt_i != alu_pkg::UINT32))
-`ASSERT(Invalid_Vector_Ops, (vector_mode_i != 1'b0))
+`ASSERT(Invalid_Input, !((fmt_i != alu_pkg::INT32) && (fmt_i != alu_pkg::UINT32)))
+`ASSERT(Invalid_Vector_Ops, !(vector_mode_i != 1'b0))
 
 endmodule
 
