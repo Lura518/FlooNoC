@@ -101,6 +101,7 @@ package floo_pkg;
     F_Mul     = 4'b0001, // FP Multiplication
     F_Min     = 4'b0010, // FP Min
     F_Max     = 4'b0011, // FP Max
+    G_Comb    = 4'b0111, // Combine the different request without OP
     A_Add     = 4'b1000, // Atomic Add (signed)
     A_Mul     = 4'b1001, // (Non-) Atomic (signed)
     A_Min_S   = 4'b1010, // Atomic Min (signed)
