@@ -45,31 +45,30 @@ module floo_fp_reduction_arbiter import floo_pkg::*; #(
   parameter int unsigned RdPartialBufferSize    = 2,
   parameter int unsigned RdTagBits              = 4,
   parameter int unsigned RdContollerComplexity  = 2
-  // TODO: enum_e parameter!
 ) (
-  input  logic                          clk_i,
-  input  logic                          rst_ni,
-  input  logic                          flush_i,
+  input  logic                                  clk_i,
+  input  logic                                  rst_ni,
+  input  logic                                  flush_i,
   /// Ports towards the input routes
-  input  logic  [NumRoutes-1:0]         valid_i,
-  output logic  [NumRoutes-1:0]         ready_o,
-  input  flit_t [NumRoutes-1:0]         data_i,
-  input  logic  [NumRoutes-1:0]         output_route_i,
-  input  id_t                           node_id_i,
+  input  logic  [NumRoutes-1:0]                 valid_i,
+  output logic  [NumRoutes-1:0]                 ready_o,
+  input  flit_t [NumRoutes-1:0]                 data_i,
+  input  logic  [NumRoutes-1:0][NumRoutes-1:0]  output_route_i,
+  input  id_t                                   node_id_i,
   /// Ports towards the output routes
-  output logic  [NumRoutes-1:0]         valid_o,
-  input  logic  [NumRoutes-1:0]         ready_i,
-  output flit_t [NumRoutes-1:0]         data_o,
+  output logic  [NumRoutes-1:0]                 valid_o,
+  input  logic  [NumRoutes-1:0]                 ready_i,
+  output flit_t [NumRoutes-1:0]                 data_o,
   /// IF towards external FPU
-  output RdData_t                       reduction_req_op1_o,
-  output RdData_t                       reduction_req_op2_o,
-  output RdOperation_t                  reduction_req_type_o,
-  output logic                          reduction_req_valid_o,
-  input logic                           reduction_req_ready_i,
+  output RdData_t                               reduction_req_op1_o,
+  output RdData_t                               reduction_req_op2_o,
+  output RdOperation_t                          reduction_req_type_o,
+  output logic                                  reduction_req_valid_o,
+  input logic                                   reduction_req_ready_i,
   /// IF from external FPU
-  input RdData_t                        reduction_resp_data_i,
-  input logic                           reduction_resp_valid_i,
-  output logic                          reduction_resp_ready_o
+  input RdData_t                                reduction_resp_data_i,
+  input logic                                   reduction_resp_valid_i,
+  output logic                                  reduction_resp_ready_o
 );
 
 /* All local parameter */
@@ -208,7 +207,7 @@ for (genvar i = 0; i < NumRoutes; i++) begin : gen_input_mask
     .NumRoutes (NumRoutes),
     .flit_t    (flit_t),
     .id_t      (id_t),
-    .Mode      (0)
+    .FwdMode      (0)
   ) i_gen_route_xymask (
     .channel_i (data_i[i]),
     .xy_id_i   (node_id_i),
@@ -519,8 +518,8 @@ floo_fp_reduction_controller #(
     .mask_t                     (mask_t),
     .flit_t                     (flit_t),
     .flit_mask_tag_t            (flit_mask_tag_t),
-    .idx_out_cross_t            (in_cross_idx_t),
-    .idx_in_cross_t             (out_cross_idx_t),
+    .idx_out_cross_t            (out_cross_idx_t),
+    .idx_in_cross_t             (in_cross_idx_t),
     .idx_part_res_t             (part_res_idx_t),
     .GENERIC                    (GENERIC),
     .SIMPLE                     (SIMPLE),
@@ -556,13 +555,13 @@ floo_fp_reduction_controller #(
 
 /* ASSERTION Checks */
 // The fp reduction supports up to 6 operands
-`ASSERT_INIT(Number_Input_Route_Invalid, (NumRoutes > 6))
+`ASSERT_INIT(Number_Input_Route_Invalid, !(NumRoutes > 6))
 // Currently we only support reduction extension with an pipeline depth of at least 1 cycle as otherwise loops could be generated!
-`ASSERT_INIT(ReductionPipelineDepth, (RdPipelineDepth == 0))
+`ASSERT_INIT(ReductionPipelineDepth, !(RdPipelineDepth == 0))
 // We can only run GENERIC or SIMPLE or STALLING
-`ASSERT_INIT(Invalid_Configuration_1, (GENERIC && SIMPLE))
-`ASSERT_INIT(Invalid_Configuration_2, (STALLING && SIMPLE))
-`ASSERT_INIT(Invalid_Configuration_3, (GENERIC && STALLING))
-`ASSERT_INIT(Invalid_Configuration_4, (GENERIC || STALLING || SIMPLE))
+`ASSERT_INIT(Invalid_Configuration_1, !(GENERIC & SIMPLE))
+`ASSERT_INIT(Invalid_Configuration_2, !(STALLING & SIMPLE))
+`ASSERT_INIT(Invalid_Configuration_3, !(GENERIC & STALLING))
+`ASSERT_INIT(Invalid_Configuration_4, (GENERIC | STALLING | SIMPLE))
 
 endmodule

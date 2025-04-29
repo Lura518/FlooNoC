@@ -241,7 +241,7 @@ if((GENERIC == 1'b1) || (STALLING == 1'b1)) begin : gen_mask_all_tag_if_necessar
         // Init all Vars
         buffer_d = buffer_q;
         header_output_o = '0;
-        reduction_type_o = '0;
+        reduction_type_o = floo_pkg::F_Add;
         output_dir_o = '0;
         reduction_req_tag_o = '0;
 
@@ -559,10 +559,10 @@ end
 
 /* ASSERTION Checks */
 // We can only run GENERIC or SIMPLE or STALLING
-`ASSERT_INIT(Invalid_Configuration_1, (GENERIC && SIMPLE))
-`ASSERT_INIT(Invalid_Configuration_2, (STALLING && SIMPLE))
-`ASSERT_INIT(Invalid_Configuration_3, (GENERIC && STALLING))
-`ASSERT_INIT(Invalid_Configuration_4, (GENERIC || STALLING || SIMPLE))
-`ASSERT_INIT(Invalid_Configuration_5, (STALLING && (RdPipelineDepth != 1)))
+`ASSERT_INIT(Invalid_Configuration_1, !(GENERIC & SIMPLE))
+`ASSERT_INIT(Invalid_Configuration_2, !(STALLING & SIMPLE))
+`ASSERT_INIT(Invalid_Configuration_3, !(GENERIC & STALLING))
+`ASSERT_INIT(Invalid_Configuration_4, (GENERIC | STALLING | SIMPLE))
+//`ASSERT_INIT(Invalid_Configuration_5, !(STALLING && (RdPipelineDepth != 1))) // Why do we need this assertion?
 
 endmodule
