@@ -173,29 +173,48 @@ module floo_router
   logic  [NumInput-1:0][NumVirtChannels-1:0] cross_valid, cross_ready;
 
   // Vars to branch the reduction off the main path (No virtual channel support for reduction)
-  logic  [NumInput-1:0] red_valid_in, red_ready_in;
+  logic  [NumInput-1:0][NumVirtChannels-1:0] red_valid_in, red_ready_in;
   logic  [NumInput-1:0][NumOutput-1:0] red_route_selected;
   flit_t [NumInput-1:0] red_data_in;
 
   // Vars for the data comming from the reduction
-  logic  [NumInput-1:0] red_valid_out, red_ready_out;
+  logic  [NumOutput-1:0] red_valid_out, red_ready_out;
   flit_t [NumOutput-1:0] red_data_out;
+
+  // Vars to separate reductions with only one member
+  logic [NumInput-1:0][NumInput-1:0][NumVirtChannels-1:0] red_expected_in_direction;
+  logic [NumInput-1:0][NumVirtChannels-1:0] red_single_member;
 
 
   // If we support offload reduction and a reduction is dedected then we split the signal and forward it to the reduction
   if(EnOffloadReduction == 1'b1) begin : gen_offload_reduction_demux
     for (genvar in = 0; in < NumInput; in++) begin : gen_input
       for (genvar v = 0; v < NumVirtChannels; v++) begin : gen_virt_input
+        // Generate the mask for all inputs to determint if we have a reduction with only one member.
+        // Any reduction with one member will be directly forwarded to its destination without reduction!
+        floo_route_xymask #(
+          .NumRoutes    (NumInput),
+          .flit_t       (flit_t),
+          .id_t         (id_t),
+          .FwdMode      (0)
+        ) i_gen_route_xymask (
+          .channel_i    (in_routed_data[in][v]),
+          .xy_id_i      (xy_id_i),
+          .route_sel_o  (red_expected_in_direction[in][v])
+        );
+
+        // onehot decoding of the input direction
+        assign red_single_member[in][v] = $onehot(red_expected_in_direction[in][v]);
+
         // Generate the handshaking
-        // TODO - Incorperate a reduction with only 1 master here and forward it directly
         stream_demux #(
           .N_OUP              (2)
         ) i_stream_demux (
           .inp_valid_i        (in_valid[in][v]),
           .inp_ready_o        (in_ready[in][v]),
-          .oup_sel_i          (in_routed_data[in][v].hdr.commtype == OffloadReduction),
-          .oup_valid_o        ({red_valid_in, cross_valid}),
-          .oup_ready_i        ({red_ready_in, cross_ready})
+          .oup_sel_i          ((in_routed_data[in][v].hdr.commtype == OffloadReduction) & (~red_single_member[in][v])),
+          .oup_valid_o        ({red_valid_in[in][v], cross_valid[in][v]}),
+          .oup_ready_i        ({red_ready_in[in][v], cross_ready[in][v]})
         );
         // Assign the data
         assign red_data_in[in] = in_routed_data[in][v];
@@ -300,10 +319,10 @@ module floo_router
   if(EnOffloadReduction == 1'b1) begin : gen_assign_data_output
     for (genvar v = 0; v < NumVirtChannels; v++) begin : gen_con_virt
       for (genvar out = 0; out < NumOutput; out++) begin : gen_con_output
-        assign merged_data[out][v] = {red_data_out, masked_data[out][v]};
-        assign merged_valid[out][v] = {red_valid_out, masked_valid[out][v]};
+        assign merged_data[out][v] = {red_data_out[out], masked_data[out][v]};
+        assign merged_valid[out][v] = {red_valid_out[out], masked_valid[out][v]};
         assign masked_ready[out][v] = merged_ready[out][v][localNumInputs-2:0];
-        assign red_ready_out = merged_ready[out][v][localNumInputs-1];
+        assign red_ready_out[out] = merged_ready[out][v][localNumInputs-1];
       end
     end
   end else begin
@@ -448,6 +467,8 @@ module floo_router
   // Multicast is currently only supported for `XYRouting`
   `ASSERT_INIT(NoMultiCastSupport, !(EnMultiCast && RouteAlgo != XYRouting))
   // Assertian check that when we use the FP reduction no virtual channel are init
-  `ASSERT_INIT(NoVirtChanSupport, (EnOffloadReduction && (NumVirtChannels != 1)))
+  `ASSERT_INIT(NoVirtChanSupport, !(EnOffloadReduction && (NumVirtChannels != 1)))
+  // We only support symmetrical configuration for the FP reduction
+  `ASSERT_INIT(NoSymConfig, !(EnOffloadReduction && (NumInput != NumOutput)))
 
 endmodule
