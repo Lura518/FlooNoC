@@ -14,18 +14,20 @@
 /// A bidirectional network interface for connecting AXI4 Buses to the NoC
 module floo_axi_chimney #(
   /// Config of the AXI interfaces (see floo_pkg::axi_cfg_t for details)
-  parameter floo_pkg::axi_cfg_t AxiCfg = '0,
+  parameter floo_pkg::axi_cfg_t AxiCfg                  = '0,
   /// Config of the data path in the chimney (see floo_pkg::chimney_cfg_t for details)
-  parameter floo_pkg::chimney_cfg_t ChimneyCfg = floo_pkg::ChimneyDefaultCfg,
+  parameter floo_pkg::chimney_cfg_t ChimneyCfg          = floo_pkg::ChimneyDefaultCfg,
   /// Config for routing information (see floo_pkg::route_cfg_t for details)
-  parameter floo_pkg::route_cfg_t RouteCfg  = floo_pkg::RouteDefaultCfg,
+  parameter floo_pkg::route_cfg_t RouteCfg              = floo_pkg::RouteDefaultCfg,
   /// Atomic operation support
-  parameter bit AtopSupport                 = 1'b1,
+  parameter bit AtopSupport                             = 1'b1,
   /// Maximum number of oustanding Atomic transactions,
   /// must be smaller or equal to 2**AxiOutIdWidth-1 since
   /// Every atomic transactions needs to have a unique ID
   /// and one ID is reserved for non-atomic transactions
   parameter int unsigned MaxAtomicTxns      = 1,
+  /// Enable collective operation
+  parameter bit EnCollectiveOperation                   = 1'b0,
   /// Node ID type for routing
   parameter type id_t                                   = logic,
   /// RoB index type for reordering.
@@ -701,6 +703,7 @@ module floo_axi_chimney #(
   assign b_sel_atop = is_atop_b_rsp && !b_rob_pending_q;
   assign r_sel_atop = is_atop_r_rsp && !r_rob_pending_q;
 
+  // TODO: Here I should change the data from the payload into the axi container - problem with sizes!
   assign axi_unpack_aw = floo_req_in.axi_aw.payload;
   assign axi_unpack_w  = floo_req_in.axi_w.payload;
   assign axi_unpack_ar = floo_req_in.axi_ar.payload;
