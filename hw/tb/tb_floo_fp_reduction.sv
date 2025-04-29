@@ -30,27 +30,35 @@ module tb_floo_fp_reduction;
   localparam time ApplTime = 2ns;
   localparam time TestTime = 8ns;
 
-  localparam int unsigned NumReductions = 30;
+  localparam int unsigned NumReductions = 2;
 
   localparam chimney_cfg_t RoBChimneyCfg = gen_rob_chimney_cfg();
 
   localparam floo_pkg::axi_cfg_t AxiNarrow = '{
-    AddrWidth: 48,
+    AddrWidth: 32,
     DataWidth: 64,
     UserWidth: 38,
     InIdWidth: 4,
-    OutIdWidth: 2
+    OutIdWidth: 4
   };
 
   // AXI nw_chimney parameters
   localparam floo_pkg::axi_cfg_t AxiWide = '{
-    AddrWidth: 48,
+    AddrWidth: 32,
     DataWidth: 512,
     UserWidth: 1,
     InIdWidth: 3,
     OutIdWidth: 1
   };
 
+  // Generate the user fields
+  typedef struct packed {
+    logic [31:0] mask;
+    floo_pkg::collect_comm_e coll_operation_type;
+    floo_pkg::reduction_op_e coll_offload_ops;
+  } axi_subfield_user_t;
+
+  // TODO: Change @ Chimney too because Questa pisses itself if we use AxiConfig there
   //localparam floo_pkg::axi_cfg_t AxiConfig = AxiWide;  // Wide AXI Link
   localparam floo_pkg::axi_cfg_t AxiConfig = AxiNarrow;  // Narrow AXI Link
 
@@ -79,13 +87,32 @@ module tb_floo_fp_reduction;
   } node_addr_region_t;
 
   // Generate the adress scope of each individal master
+  // TODO: Change here to 220000!
+  /*
   localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
     '{idx: North, start_addr: 32'h00210000, end_addr: 32'h0021FFFF},  // North
     '{idx: East, start_addr: 32'h00120000, end_addr: 32'h0012FFFF},   // East
     '{idx: South, start_addr: 32'h00010000, end_addr: 32'h0001FFFF},  // South
     '{idx: West, start_addr: 32'h00100000, end_addr: 32'h0010FFFF},   // West
-    '{idx: Eject, start_addr: 32'h00000000, end_addr: 32'h00008000}   // Local Port TODO: Is this correct?
+    '{idx: Eject, start_addr: 32'h00110000, end_addr: 32'h0011FFFF}   // Local Port TODO: Is this correct?
   };
+  */
+ /*
+ localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
+  '{idx: North, start_addr: 32'h00210000, end_addr: 32'h00220000},  // North
+  '{idx: East, start_addr: 32'h00120000, end_addr: 32'h00130000},   // East
+  '{idx: South, start_addr: 32'h00010000, end_addr: 32'h00020000},  // South
+  '{idx: West, start_addr: 32'h00100000, end_addr: 32'h00110000},   // West
+  '{idx: Eject, start_addr: 32'h00110000, end_addr: 32'h00120000}   // Local Port TODO: Is this correct?
+};
+*/
+localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
+  '{idx: Eject, start_addr: 32'h00110000, end_addr: 32'h00120000},  // Local Port TODO: Is this correct?
+  '{idx: West, start_addr: 32'h00100000, end_addr: 32'h00110000},   // West
+  '{idx: South, start_addr: 32'h00010000, end_addr: 32'h00020000},  // South
+  '{idx: East, start_addr: 32'h00120000, end_addr: 32'h00130000},   // East
+  '{idx: North, start_addr: 32'h00210000, end_addr: 32'h00220000}   // North
+};
 
   /* Variable declaration */
 
@@ -147,6 +174,74 @@ module tb_floo_fp_reduction;
     assign chimney_rsp_in[i].ready = chimney_rsp_in_ready[i];
   end
 
+  // Debug Prints on all IF
+  initial begin
+    $display($time, "Start IF Monitoring!");
+    while(1) begin // run forever
+      @(posedge clk);
+
+      // Evaluate all incoming request to the router
+      for(int i = 0; i < floo_pkg::NumDirections; i++) begin
+        if((chimney_req_in[i].valid == 1'b1) && (chimney_req_in[i].ready == 1'b1)) begin
+          printChimneyRequest(chimney_req_in[i].req, i, "Ch-In ");
+        end
+      end
+
+        // Evaluate all outgoing request from the router
+      for(int i = 0; i < floo_pkg::NumDirections; i++) begin
+        if((chimney_req_out[i].valid == 1'b1) && (chimney_req_out[i].ready == 1'b1)) begin
+          printChimneyRequest(chimney_req_out[i].req, i, "Ch-Out");
+        end
+      end
+
+      // Evaluate all incoming response to the router
+      for(int i = 0; i < floo_pkg::NumDirections; i++) begin
+        if((chimney_rsp_in[i].valid == 1'b1) && (chimney_rsp_in[i].ready == 1'b1)) begin
+          printChimneyResponse(chimney_rsp_in[i].rsp, i, "Ch-In ");
+        end
+      end
+      
+      // Evaluate all outgoing response from the router
+      for(int i = 0; i < floo_pkg::NumDirections; i++) begin
+        if((chimney_rsp_out[i].valid == 1'b1) && (chimney_rsp_out[i].ready == 1'b1)) begin
+          printChimneyResponse(chimney_rsp_out[i].rsp, i, "Ch-Out");
+        end  
+      end
+
+      // Evaluate the offload port request
+      if((offload_req_valid == 1'b1) && (offload_req_ready == 1'b1)) begin
+        $display($time, " OFFLOAD   (RQ) > T: %4b OP1: %h OP2: %h", offload_req_op, offload_req_operand1, offload_req_operand2);
+      end
+
+      // Evaluate the offload port response
+      if((offload_resp_valid == 1'b1) && (offload_resp_ready == 1'b1)) begin
+        $display($time, " OFFLOAD   (RS) > Res: %h", offload_resp_result);
+      end
+    end
+  end
+
+  // Function to plot request (No support for AR channel)
+  function void printChimneyRequest (floo_req_chan_t req, int i, string s);
+    if(req.generic.hdr.axi_ch == AxiAw) begin
+      $display($time, " MONITOR %1d (AW) [%s] > M(Floo): %b M(AXI): %b C: %2b T: %4b Id: %4b Addr:%h", i, s, req.axi_aw.hdr.mask, req.axi_aw.payload.user, req.axi_aw.hdr.commtype, req.axi_aw.hdr.reduction_op, req.axi_aw.payload.id, req.axi_aw.payload.addr);
+    end else if(req.generic.hdr.axi_ch == AxiW) begin
+      $display($time, " MONITOR %1d (W)  [%s] > M(Floo): %b M(AXI): %b C: %2b T: %4b Data:%h Last: %1d", i, s, req.axi_w.hdr.mask, req.axi_w.payload.user, req.axi_w.hdr.commtype, req.axi_w.hdr.reduction_op, req.axi_w.payload.data, req.axi_w.payload.last);
+    end else if(req.generic.hdr.axi_ch == AxiAr) begin
+      $display($time, " MONITOR %1d (AR) [%s] > Dedected!", i, s);
+    end
+	endfunction
+
+    // Function to plot response
+  function void printChimneyResponse (floo_rsp_chan_t rsp, int i, string s);
+    if(rsp.generic.hdr.axi_ch == AxiB) begin
+      $display($time, " MONITOR %1d (B)  [%s] > M(Floo): %b M(AXI): %b C: %2b T: %4b Id: %4b", i, s, rsp.axi_b.hdr.mask, rsp.axi_b.payload.user, rsp.axi_b.hdr.commtype, rsp.axi_b.hdr.reduction_op, rsp.axi_b.payload.id);
+    end else if(rsp.generic.hdr.axi_ch == AxiR) begin
+      $display($time, " MONITOR %1d (R)  [%s] > Dedected!", i, s);
+    end
+	endfunction
+
+
+
 
   // clock and reset generation
   clk_rst_gen #(
@@ -161,27 +256,27 @@ module tb_floo_fp_reduction;
   floo_router #(
     .NumRoutes                      (floo_pkg::NumDirections),
     .NumVirtChannels                (1),
-    .flit_t                         (floo_req_generic_flit_t),
-    .payload_t                      (logic),
-    .hdr_t                          (hdr_t),
-    .NarrowRspMask                  ('0),
-    .WideRspMask                    ('0),
     .InFifoDepth                    (2),
     .OutFifoDepth                   (2),
     .RouteAlgo                      (floo_pkg::XYRouting),
     .id_t                           (id_t),
-    .NoLoopback                     (1'b1),
-    .ENABLE_MULTICAST               (1'b0),
-    .ENABLE_REDUCTION               (1'b0),
-    .ENABLE_FP_REDUCTION            (1'b1),
+    .NoLoopback                     (1'b0),
+    .XYRouteOpt                     (1'b0),
+    .EnMultiCast                    (1'b0),
+    .EnReduction                    (1'b0),
+    .EnOffloadReduction             (1'b1),
+    .flit_t                         (floo_req_generic_flit_t),
+    .hdr_t                          (hdr_t),
+    .NarrowRspMask                  ('0),
+    .WideRspMask                    ('0),
     .RdOperation_t                  (floo_pkg::reduction_op_e),
     .RdData_t                       (red_data_t),
-    .RdFifoDepth                    (2),
     .RdFifoFallThrough              (1'b1),
-    .RdFpuPipelineDepth             (3),
+    .RdFifoDepth                    (2),
+    .RdPipelineDepth                (3),
+    .RdControllerComplex            (2),
     .RdPartialBufferSize            (3),
-    .RdTagBits                      (4),
-    .RdContollerComplexity          (2)
+    .RdTagBits                      (4)
   ) i_dut_req (
     .clk_i                          (clk),
     .rst_ni                         (rst_n),
@@ -203,32 +298,31 @@ module tb_floo_fp_reduction;
     .offload_resp_valid_i           (offload_resp_valid),
     .offload_resp_ready_o           (offload_resp_ready)
   );
-
-  // Response router with multicast enabled
+  
+  // Request router with reduction enabled
   floo_router #(
     .NumRoutes                      (floo_pkg::NumDirections),
     .NumVirtChannels                (1),
-    .flit_t                         (floo_req_generic_flit_t),
-    .payload_t                      (logic),
-    .hdr_t                          (hdr_t),
-    .NarrowRspMask                  ('0),
-    .WideRspMask                    ('0),
     .InFifoDepth                    (2),
     .OutFifoDepth                   (2),
     .RouteAlgo                      (floo_pkg::XYRouting),
     .id_t                           (id_t),
-    .NoLoopback                     (1'b1),
-    .ENABLE_MULTICAST               (1'b1),
-    .ENABLE_REDUCTION               (1'b0),
-    .ENABLE_FP_REDUCTION            (1'b0),
+    .NoLoopback                     (1'b0),
+    .EnMultiCast                    (1'b1),
+    .EnReduction                    (1'b0),
+    .EnOffloadReduction             (1'b0),
+    .flit_t                         (floo_rsp_generic_flit_t),
+    .hdr_t                          (hdr_t),
+    .NarrowRspMask                  ('0),
+    .WideRspMask                    ('0),
     .RdOperation_t                  (floo_pkg::reduction_op_e),
     .RdData_t                       (red_data_t),
-    .RdFifoDepth                    (2),
     .RdFifoFallThrough              (1'b1),
-    .RdFpuPipelineDepth             (3),
+    .RdFifoDepth                    (2),
+    .RdPipelineDepth                (3),
+    .RdControllerComplex            (2),
     .RdPartialBufferSize            (3),
-    .RdTagBits                      (4),
-    .RdContollerComplexity          (2)
+    .RdTagBits                      (4)
   ) i_dut_resp (
     .clk_i                          (clk),
     .rst_ni                         (rst_n),
@@ -241,24 +335,23 @@ module tb_floo_fp_reduction;
     .valid_o                        (chimney_rsp_in_valid),
     .ready_i                        (chimney_rsp_out_ready),
     .data_o                         (chimney_rsp_in_chan),
-    .offload_req_op_o               (offload_req_op),
-    .offload_req_operand1_o         (offload_req_operand1),
-    .offload_req_operand2_o         (offload_req_operand2),
-    .offload_req_valid_o            (offload_req_valid),
-    .offload_req_ready_i            (offload_req_ready),
-    .offload_resp_result_i          (offload_resp_result),
-    .offload_resp_valid_i           (offload_resp_valid),
-    .offload_resp_ready_o           (offload_resp_ready)
+    .offload_req_op_o               (),
+    .offload_req_operand1_o         (),
+    .offload_req_operand2_o         (),
+    .offload_req_valid_o            (),
+    .offload_req_ready_i            ('0),
+    .offload_resp_result_i          ('0),
+    .offload_resp_valid_i           ('0),
+    .offload_resp_ready_o           ()
   );
-
 
   // Add the Reduction Offload here
   if(AxiConfig.DataWidth == 64) begin : gen_narrow_reduction
     floo_reduction_wrapper #(
       .RdData_t                       (red_data_t),
       .RdElements                     (1),
-      .FPU_ACTIVE                     (1'b1),
-      .ALU_ACTIVE                     (1'b0),
+      .FPU_ACTIVE                     (1'b0),
+      .ALU_ACTIVE                     (1'b1),
       .DEBUG_PRINT_TRACE              (1'b1)
     ) i_wrapper_narrow (
       .clk_i                          (clk),
@@ -308,11 +401,12 @@ module tb_floo_fp_reduction;
     .slv_req_t          (axi_out_req_t),
     .slv_rsp_t          (axi_out_rsp_t),
     .rule_t             (node_addr_region_t),
-    .AxiMaxBurstLen     (6),
+    .AxiMaxBurstLen     (1),
     .NumAddrRegions     (floo_pkg::NumDirections),
     .AddrRegions        (AddrRegions),
     .NumReductions      (NumReductions),
-    .NumTestPorts       (floo_pkg::NumDirections)
+    .NumTestPorts       (floo_pkg::NumDirections),
+    .NumInfligthElem    (2)
   ) i_gen_reductions (
     .clk_i              (clk),
     .rst_ni             (rst_n),
@@ -323,10 +417,10 @@ module tb_floo_fp_reduction;
     .end_of_sim_o       (end_of_sim)
   );
 
-  // Iterate over all ports to assign a chmney ad the coresspondng AXI logger
+  // Iterate over all ports to assign a chimney and the coresspondng AXI logger
   for (genvar i = North; i <= Eject; i++) begin : gen_slaves
 
-    // Assign the xy_id to determind the ???
+    // TODO RAROTH: Assign the xy_id to determind the ???
     if (i == North) begin : gen_north
       assign xy_id[i] = '{x: 2'd1, y: 2'd2, port_id: 1'd0};
     end else if (i == South) begin : gen_south
@@ -341,35 +435,39 @@ module tb_floo_fp_reduction;
 
     // Generate the Chimneys to connect the router to AXI Testbench
     floo_axi_chimney #(
-      .AxiCfg             (floo_test_pkg::AxiCfg),
-      .ChimneyCfg         (RoBChimneyCfg), // Needs RoB
-      .RouteCfg           (floo_test_pkg::RouteCfg),
-      .AtopSupport        (floo_test_pkg::AtopSupport),
-      .MaxAtomicTxns      (floo_test_pkg::MaxAtomicTxns),
-      .axi_in_req_t       (axi_in_req_t),
-      .axi_in_rsp_t       (axi_in_rsp_t),
-      .axi_out_req_t      (axi_out_req_t),
-      .axi_out_rsp_t      (axi_out_rsp_t),
-      .rob_idx_t          (rob_idx_t),
-      .id_t               (id_t),
-      .hdr_t              (hdr_t),
-      .floo_req_t         (floo_req_t),
-      .floo_rsp_t         (floo_rsp_t)
+      .AxiCfg                 (AxiNarrow),
+      .ChimneyCfg             (RoBChimneyCfg), // Needs RoB
+      .RouteCfg               (floo_test_pkg::RouteCfg),
+      .AtopSupport            (floo_test_pkg::AtopSupport),
+      .MaxAtomicTxns          (floo_test_pkg::MaxAtomicTxns),
+      .axi_in_req_t           (axi_in_req_t),
+      .axi_in_rsp_t           (axi_in_rsp_t),
+      .axi_out_req_t          (axi_out_req_t),
+      .axi_out_rsp_t          (axi_out_rsp_t),
+      .rob_idx_t              (rob_idx_t),
+      .id_t                   (id_t),
+      .hdr_t                  (hdr_t),
+      .floo_req_t             (floo_req_t),
+      .floo_rsp_t             (floo_rsp_t),
+      .user_struct_t          (axi_subfield_user_t),
+      .user_mask_t            (axi_subfield_user_t),
+      .EnMultiCast            (1'b1),
+      .EnCollectiveOperation  (1'b1)
     ) i_floo_axi_chimney (
-      .clk_i              (clk),
-      .rst_ni             (rst_n),
-      .sram_cfg_i         ('0),
-      .test_enable_i      (1'b0),
-      .axi_in_req_i       (node_mst_req[i]),
-      .axi_in_rsp_o       (node_mst_resp[i]),
-      .axi_out_req_o      (node_slv_req[i]),
-      .axi_out_rsp_i      (node_slv_resp[i]),
-      .id_i               (xy_id[i]),
-      .route_table_i      ('0),
-      .floo_req_o         (chimney_req_out[i]),
-      .floo_rsp_o         (chimney_rsp_out[i]),
-      .floo_req_i         (chimney_req_in[i]),
-      .floo_rsp_i         (chimney_rsp_in[i])
+      .clk_i                  (clk),
+      .rst_ni                 (rst_n),
+      .sram_cfg_i             ('0),
+      .test_enable_i          (1'b0),
+      .axi_in_req_i           (node_mst_req[i]),
+      .axi_in_rsp_o           (node_mst_resp[i]),
+      .axi_out_req_o          (node_slv_req[i]),
+      .axi_out_rsp_i          (node_slv_resp[i]),
+      .id_i                   (xy_id[i]),
+      .route_table_i          ('0),
+      .floo_req_o             (chimney_req_out[i]),
+      .floo_rsp_o             (chimney_rsp_out[i]),
+      .floo_req_i             (chimney_req_in[i]),
+      .floo_rsp_i             (chimney_rsp_in[i])
     );
 
     // Axi Dumper to Monitor the Master Bus
