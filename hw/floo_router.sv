@@ -63,7 +63,8 @@ module floo_router
   /// Reduction controller configuration options
   parameter int unsigned RdControllerComplex  = 2,
   parameter int unsigned RdPartialBufferSize  = 2,
-  parameter int unsigned RdTagBits            = 4
+  parameter int unsigned RdTagBits            = 4,
+  parameter bit          RdSupportAxi         = 1'b1,
 ) (
   input  logic                                       clk_i,
   input  logic                                       rst_ni,
@@ -182,7 +183,7 @@ module floo_router
   flit_t [NumOutput-1:0] red_data_out;
 
   // Vars to separate reductions with only one member
-  logic [NumInput-1:0][NumInput-1:0][NumVirtChannels-1:0] red_expected_in_direction;
+  logic [NumInput-1:0][NumVirtChannels-1:0][NumInput-1:0] red_expected_in_route;
   logic [NumInput-1:0][NumVirtChannels-1:0] red_single_member;
 
 
@@ -200,11 +201,14 @@ module floo_router
         ) i_gen_route_xymask (
           .channel_i    (in_routed_data[in][v]),
           .xy_id_i      (xy_id_i),
-          .route_sel_o  (red_expected_in_direction[in][v])
+          .route_sel_o  (red_expected_in_route[in][v])
         );
 
         // onehot decoding of the input direction
-        assign red_single_member[in][v] = $onehot(red_expected_in_direction[in][v]);
+        // TODO (raroth): Switch the line if we are not in the testbench as the testbench generates requests that
+        //              return to the same port! In the real system this will never work!
+        // assign red_single_member[in][v] = $onehot(red_expected_in_route[in][v]);
+        assign red_single_member[in][v] = $onehot(red_expected_in_route[in][v]) | (&(~red_expected_in_route[in][v]));
 
         // Generate the handshaking
         stream_demux #(
@@ -227,43 +231,46 @@ module floo_router
     assign red_valid_in = '0;
     assign red_data_in = '0;
     assign red_route_selected = '0;
+    assign red_expected_in_route = '0;
   end
 
   // Reduction logic
   if(EnOffloadReduction == 1'b1) begin : gen_reduction_logic
-    floo_fp_reduction_arbiter #(
-      .NumRoutes                (NumInput),
-      .flit_t                   (flit_t),
-      .hdr_t                    (hdr_t),
-      .id_t                     (id_t),
-      .RdData_t                 (RdData_t),
-      .RdOperation_t            (RdOperation_t),
-      .RdFifoDepth              (RdFifoDepth),
-      .RdFifoFallThrough        (RdFifoFallThrough),
-      .RdPipelineDepth          (RdPipelineDepth),
-      .RdPartialBufferSize      (RdPartialBufferSize),
-      .RdTagBits                (RdTagBits),
-      .RdContollerComplexity    (RdControllerComplex)
-    ) i_reduction_logic (
-      .clk_i                    (clk_i),
-      .rst_ni                   (rst_ni),
-      .flush_i                  (1'b0),
-      .valid_i                  (red_valid_in),
-      .ready_o                  (red_ready_in),
-      .data_i                   (red_data_in),
-      .output_route_i           (red_route_selected),
-      .node_id_i                (xy_id_i),
-      .valid_o                  (red_valid_out),
-      .ready_i                  (red_ready_out),
-      .data_o                   (red_data_out),
-      .reduction_req_op1_o      (offload_req_operand1_o),
-      .reduction_req_op2_o      (offload_req_operand2_o),
-      .reduction_req_type_o     (offload_req_op_o),
-      .reduction_req_valid_o    (offload_req_valid_o),
-      .reduction_req_ready_i    (offload_req_ready_i),
-      .reduction_resp_data_i    (offload_resp_result_i),
-      .reduction_resp_valid_i   (offload_resp_valid_i),
-      .reduction_resp_ready_o   (offload_resp_ready_o)
+    floo_offload_reduction #(
+      .NumRoutes                  (NumInput),
+      .flit_t                     (flit_t),
+      .hdr_t                      (hdr_t),
+      .id_t                       (id_t),
+      .RdData_t                   (RdData_t),
+      .RdOperation_t              (RdOperation_t),
+      .RdFifoDepth                (RdFifoDepth),
+      .RdFifoFallThrough          (RdFifoFallThrough),
+      .RdPipelineDepth            (RdPipelineDepth),
+      .RdPartialBufferSize        (RdPartialBufferSize),
+      .RdTagBits                  (RdTagBits),
+      .RdContollerComplexity      (RdControllerComplex),
+      .RdSupportAxi               (RdSupportAxi)
+    ) i_offload_reduction_logic (
+      .clk_i                      (clk_i),
+      .rst_ni                     (rst_ni),
+      .flush_i                    (1'b0),
+      .node_id_i                  (xy_id_i),
+      .valid_i                    (red_valid_in),
+      .ready_o                    (red_ready_in),
+      .data_i                     (red_data_in),
+      .output_route_i             (red_route_selected),
+      .expected_input_i           (red_expected_in_route),
+      .valid_o                    (red_valid_out),
+      .ready_i                    (red_ready_out),
+      .data_o                     (red_data_out),
+      .reduction_req_type_o       (offload_req_op_o),
+      .reduction_req_op1_o        (offload_req_operand1_o),
+      .reduction_req_op2_o        (offload_req_operand2_o),
+      .reduction_req_valid_o      (offload_req_valid_o),
+      .reduction_req_ready_i      (offload_req_ready_i),
+      .reduction_resp_data_i      (offload_resp_result_i),
+      .reduction_resp_valid_i     (offload_resp_valid_i),
+      .reduction_resp_ready_o     (offload_resp_ready_o)      
     );    
   end else begin
     assign red_data_out = '0;

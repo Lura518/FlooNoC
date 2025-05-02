@@ -13,7 +13,7 @@
 
 `include "common_cells/registers.svh"
 
-module floo_fp_reduction_stalling #() (
+module floo_offload_reduction_stalling #() (
     /// Control Inputs
     input  logic        clk_i,
     input  logic        rst_ni,

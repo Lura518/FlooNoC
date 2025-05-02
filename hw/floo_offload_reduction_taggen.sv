@@ -29,7 +29,7 @@
 
 `include "common_cells/registers.svh"
 
-module floo_fp_reduction_taggen #(
+module floo_offload_reduction_taggen #(
     parameter int unsigned NumRoutes            = 1,
     parameter type TAG_T                        = logic
 ) (
