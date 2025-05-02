@@ -13,14 +13,20 @@
 `include "floo_noc/typedef.svh"
 
 module floo_reduction_full_mst #(
+    /// Apply Time
     parameter time                          ApplTime        = 1ns,
+    /// Test Time
     parameter time                          TestTime        = 1ns,
+    /// Configuration for the underlying AXI
     parameter floo_pkg::axi_cfg_t           AxiCfg          = '{default:0},
+    /// AXI request / response type
     parameter type                          mst_req_t       = logic,
     parameter type                          mst_rsp_t       = logic,
     parameter type                          slv_req_t       = logic,
     parameter type                          slv_rsp_t       = logic,
+    /// Address rule
     parameter type                          rule_t          = logic,
+    /// div Param
     parameter int unsigned                  AxiMaxBurstLen  = 128,
     parameter int unsigned                  NumAddrRegions  = 0,
     parameter rule_t [NumAddrRegions-1:0]   AddrRegions     = '0,
@@ -164,13 +170,12 @@ module floo_reduction_full_mst #(
             end_of_sim_o[i] <= 1'b0;
 
             // Add all other memory region to the master's (TODO: Correct? Take a look with Lorenzo)
-            axi_rand_master[i].add_memory_region(AddrRegions[i].start_addr, AddrRegions[i].end_addr, axi_pkg::DEVICE_NONBUFFERABLE);
-            //for(int j = 0; j < NumTestPorts; j++) begin
-                
-                //if(i != j) begin
-                //    axi_rand_master[i].add_memory_region(AddrRegions[j].start_addr, AddrRegions[j].end_addr, axi_pkg::DEVICE_NONBUFFERABLE);
-                //end
-            //end
+            //axi_rand_master[i].add_memory_region(AddrRegions[i].start_addr, AddrRegions[i].end_addr, axi_pkg::DEVICE_NONBUFFERABLE);
+            for(int j = 0; j < NumTestPorts; j++) begin
+                if(i != j) begin
+                    axi_rand_master[i].add_memory_region(AddrRegions[j].start_addr, AddrRegions[j].end_addr, axi_pkg::DEVICE_NONBUFFERABLE);
+                end
+            end
             
             axi_rand_master[i].set_mst_idx(i);
             axi_rand_master[i].set_reduction_probability(100);
