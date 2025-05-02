@@ -313,13 +313,13 @@ module floo_reduction_alu import floo_pkg::*; #(
         @(posedge clk_i);
         // Print the incoming operation
         if((alu_req_valid_i == 1'b1) && (alu_req_ready_o == 1'b1)) begin
-          $display($time, "[ALU %1d - Itr %1d] > ALU Ops: [%h, %h] ALU Op: %s", ID, cnt_in, alu_req_op1_i, alu_req_op2_i, genOpAlu(alu_req_type_i));
+          $display($time, " [ALU %1d - Itr %1d] > ALU Ops: [%h, %h] ALU Op: %s", ID, cnt_in, alu_req_op1_i, alu_req_op2_i, genOpAlu(alu_req_type_i));
           cnt_in = cnt_in + 1;
         end
 
         // Print Result / Status of alu
         if((alu_resp_valid_o == 1'b1) && (alu_resp_ready_i == 1'b1)) begin
-          $display($time, "[ALU %1d - Itr %1d] > ALU Result: %h", ID, cnt_out, alu_out.result);
+          $display($time, " [ALU %1d - Itr %1d] > ALU Result: %h", ID, cnt_out, alu_out.result);
           cnt_out = cnt_out + 1;
         end
       end
@@ -527,13 +527,13 @@ module floo_reduction_fpu import floo_pkg::*; #(
         @(posedge clk_i);
         // Print the incoming operation
         if((fpu_req_valid_i == 1'b1) && (fpu_req_ready_o == 1'b1)) begin
-          $display($time, "[FPU %1d - Itr %1d] > FPU Ops: [%f, %f] FPU Op: %s", ID, cnt_in, fpu_req_op1_i, fpu_req_op2_i, genOp(fpu_req_type_i));
+          $display($time, " [FPU %1d - Itr %1d] > FPU Ops: [%f, %f] FPU Op: %s", ID, cnt_in, fpu_req_op1_i, fpu_req_op2_i, genOp(fpu_req_type_i));
           cnt_in = cnt_in + 1;
         end
 
         // Print Result / Status of FPU
         if((fpu_resp_valid_o == 1'b1) && (fpu_resp_ready_i == 1'b1)) begin
-          $display($time, "[FPU %1d - Itr %1d] > FPU Result: %f FPU Status: %s", ID, cnt_out, fpu_out.result, genBitRep(fpu_out.status));
+          $display($time, " [FPU %1d - Itr %1d] > FPU Result: %f FPU Status: %s", ID, cnt_out, fpu_out.result, genBitRep(fpu_out.status));
           cnt_out = cnt_out + 1;
         end
       end
