@@ -30,6 +30,8 @@ module floo_reduction_full_mst #(
     parameter int unsigned                  AxiMaxBurstLen  = 128,
     parameter int unsigned                  NumAddrRegions  = 0,
     parameter rule_t [NumAddrRegions-1:0]   AddrRegions     = '0,
+    parameter int unsigned                  NumInvalidPath  = 0,
+    parameter rule_t [NumInvalidPath-1:0]   InvalidPath     = '0,
     parameter int unsigned                  NumReductions   = 10,
     parameter int unsigned                  NumTestPorts    = 5,
     parameter int unsigned                  NumInfligthElem = 20
@@ -53,10 +55,6 @@ module floo_reduction_full_mst #(
 
     /* All Typedef Vars */
 
-    // TODO: Check parameter:
-    // .IW correct?
-    // .ReductionId correct?
-    // .NoRedPorts - Number of reduction ports?!?
 
     // Generate the typedef for the reduction master
     typedef axi_reduction_test::axi_reduction_rand_master #(
@@ -77,6 +75,7 @@ module floo_reduction_full_mst #(
         // Extra parameters to handle reduction requests
         .rule_t                         (rule_t), 
         .NoAddrRules                    (NumAddrRegions ),
+        .NoInvalidPath                  (NumInvalidPath),
         .NoMsts                         (NumTestPorts),
         .NoSlvs                         (NumTestPorts),
         .NoRedPorts                     (NumTestPorts),
@@ -84,7 +83,8 @@ module floo_reduction_full_mst #(
         .ENABLE_REDUCTION               (1'b1),
         .ENABLE_EXCLUSIVE_REDUCTION     (1'b1),
         .ReductionId                    (2),
-        .AddrMap                        (AddrRegions)
+        .AddrMap                        (AddrRegions),
+        .InvalidPath                    (InvalidPath)
     ) axi_reduction_rand_master_t;
 
     // Generate the typedef for the slave

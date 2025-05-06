@@ -3,6 +3,10 @@
 // SPDX-License-Identifier: SHL-0.51
 //
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
+// Raphael Roth  <raroth@student.ethz.ch>
+
+// Due to the route selection when generating the reduction we get some combination of master and
+// slave address spaces that are not allowed to be generated!
 
 `include "axi/typedef.svh"
 `include "axi/assign.svh"
@@ -113,6 +117,20 @@ localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
   '{idx: East, start_addr: 32'h00120000, end_addr: 32'h00130000},   // East
   '{idx: North, start_addr: 32'h00210000, end_addr: 32'h00220000}   // North
 };
+
+  // Due to the build up of the testbench we have some invalid path due to the routing.
+  localparam int NumberInvalidPath = 9;
+  localparam node_addr_region_t [NumberInvalidPath-1:0] InvalidPath = '{
+    '{idx: 0, start_addr: 32'h00010000, end_addr: 32'h00120000},      // S-E
+    '{idx: 0, start_addr: 32'h00010000, end_addr: 32'h00100000},      // S-W
+    '{idx: 0, start_addr: 32'h00210000, end_addr: 32'h00120000},      // N-E
+    '{idx: 0, start_addr: 32'h00210000, end_addr: 32'h00100000},      // N-W
+    '{idx: 0, start_addr: 32'h00110000, end_addr: 32'h00110000},      // E-E
+    '{idx: 0, start_addr: 32'h00100000, end_addr: 32'h00100000},      // W-W
+    '{idx: 0, start_addr: 32'h00010000, end_addr: 32'h00010000},      // S-S
+    '{idx: 0, start_addr: 32'h00120000, end_addr: 32'h00120000},      // E-E
+    '{idx: 0, start_addr: 32'h00210000, end_addr: 32'h00210000}       // N-N
+  };
 
   /* Variable declaration */
 
@@ -404,6 +422,8 @@ localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
     .AxiMaxBurstLen     (1),
     .NumAddrRegions     (floo_pkg::NumDirections),
     .AddrRegions        (AddrRegions),
+    .NumInvalidPath     (NumberInvalidPath),
+    .InvalidPath        (InvalidPath),
     .NumReductions      (NumReductions),
     .NumTestPorts       (floo_pkg::NumDirections),
     .NumInfligthElem    (2)
