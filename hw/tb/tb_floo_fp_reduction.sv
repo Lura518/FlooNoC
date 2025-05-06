@@ -91,32 +91,14 @@ module tb_floo_fp_reduction;
   } node_addr_region_t;
 
   // Generate the adress scope of each individal master
-  // TODO: Change here to 220000!
-  /*
+  // If you change these value then change the value @ the function generateParticpants!
   localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
-    '{idx: North, start_addr: 32'h00210000, end_addr: 32'h0021FFFF},  // North
-    '{idx: East, start_addr: 32'h00120000, end_addr: 32'h0012FFFF},   // East
-    '{idx: South, start_addr: 32'h00010000, end_addr: 32'h0001FFFF},  // South
-    '{idx: West, start_addr: 32'h00100000, end_addr: 32'h0010FFFF},   // West
-    '{idx: Eject, start_addr: 32'h00110000, end_addr: 32'h0011FFFF}   // Local Port TODO: Is this correct?
+    '{idx: Eject, start_addr: 32'h00110000, end_addr: 32'h00120000},  // Local Port TODO: Is this correct?
+    '{idx: West, start_addr: 32'h00100000, end_addr: 32'h00110000},   // West
+    '{idx: South, start_addr: 32'h00010000, end_addr: 32'h00020000},  // South
+    '{idx: East, start_addr: 32'h00120000, end_addr: 32'h00130000},   // East
+    '{idx: North, start_addr: 32'h00210000, end_addr: 32'h00220000}   // North
   };
-  */
- /*
- localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
-  '{idx: North, start_addr: 32'h00210000, end_addr: 32'h00220000},  // North
-  '{idx: East, start_addr: 32'h00120000, end_addr: 32'h00130000},   // East
-  '{idx: South, start_addr: 32'h00010000, end_addr: 32'h00020000},  // South
-  '{idx: West, start_addr: 32'h00100000, end_addr: 32'h00110000},   // West
-  '{idx: Eject, start_addr: 32'h00110000, end_addr: 32'h00120000}   // Local Port TODO: Is this correct?
-};
-*/
-localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
-  '{idx: Eject, start_addr: 32'h00110000, end_addr: 32'h00120000},  // Local Port TODO: Is this correct?
-  '{idx: West, start_addr: 32'h00100000, end_addr: 32'h00110000},   // West
-  '{idx: South, start_addr: 32'h00010000, end_addr: 32'h00020000},  // South
-  '{idx: East, start_addr: 32'h00120000, end_addr: 32'h00130000},   // East
-  '{idx: North, start_addr: 32'h00210000, end_addr: 32'h00220000}   // North
-};
 
   // Due to the build up of the testbench we have some invalid path due to the routing.
   localparam int NumberInvalidPath = 9;
@@ -191,37 +173,155 @@ localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
     assign chimney_rsp_in[i].valid = chimney_rsp_in_valid[i];
     assign chimney_rsp_in[i].ready = chimney_rsp_in_ready[i];
   end
+/*
+  // Determint the reduction participant
+  function logic[floo_pkg::NumDirections-1:0] determintParticipant (int master, axi_subfield_user_t mask);
+    logic[floo_pkg::NumDirections-1:0] participants;
+    logic[AxiConfig.AddrWidth-1:0] mask_dont_care_bits;
+    logic[AxiConfig.AddrWidth-1:0] masked_mask;
+
+    logic[AxiConfig.AddrWidth-1:0] rule_mask;
+    logic[AxiConfig.AddrWidth-1:0] rule_start_addr;
+    logic[AxiConfig.AddrWidth-1:0] mst_start_addr;
+
+    // Change here for new address schem
+    mask_dont_care_bits = 32'hFFCCFFFF;
+    masked_mask = mask_dont_care_bits | mask.mask;
+
+    participants = '0;
+    mst_start_addr = AddrRegions[master].start_addr;
+
+    for(int i = 0; i < floo_pkg::NumDirections; i++) begin
+      rule_mask       = AddrRegions[i].end_addr - AddrRegions[i].start_addr - 1;
+      rule_start_addr = AddrRegions[i].start_addr;
+
+      if(&((~(mst_start_addr ^ rule_start_addr) | (rule_mask | mask.mask)))) begin
+        participants = participants | (1 << i);
+      end
+    end
+
+    return participants;
+  endfunction
+*/
+
+  // Determint the reduction participant
+  function logic[floo_pkg::NumDirections-1:0] determintParticipant (id_t src, id_t mask);
+    logic[floo_pkg::NumDirections-1:0] participants;
+    id_t id_masked;
+    id_t src_masked;
+
+    participants = '0;
+    // mask the source
+    src_masked = src | mask;
+
+    for(int i = 0; i < floo_pkg::NumDirections; i++) begin
+      id_masked = xy_id[i] | mask;
+      // Compare both masked result together
+      if(src_masked == id_masked) begin
+        participants = participants | (1 << i);
+      end
+    end
+
+    return participants;
+  endfunction
+
+  // Generate golden model
+  initial begin
+    logic[AxiConfig.DataWidth-1:0] 	data_queue [floo_pkg::NumDirections][$];
+    $display($time, "Start Golden Model Generation!");
+    while(1) begin
+      @(posedge clk);
+
+      // When we receive an incomingrequest push the data to an queue
+      for(int i = 0; i < floo_pkg::NumDirections; i++) begin
+        if((chimney_req_out[i].valid == 1'b1) && (chimney_req_in[i].ready == 1'b1) && (chimney_req_out[i].req.generic.hdr.axi_ch == AxiW)) begin
+          logic[floo_pkg::NumDirections-1:0] participants;
+          axi_subfield_user_t abstraction;
+          participants = determintParticipant(chimney_req_out[i].req.axi_w.hdr.src_id, chimney_req_out[i].req.axi_w.hdr.mask);
+
+          // Only add Data if we have an reduction
+          abstraction = chimney_req_out[i].req.axi_w.payload.user;
+          if(($countones(participants) > 0) && (abstraction.coll_operation_type == floo_pkg::OffloadReduction) && (participants[i] == 1'b1)) begin
+            data_queue[i].push_front(chimney_req_out[i].req.axi_w.payload.data);
+          end
+        end
+      end
+
+      // Evaluate all incoming request to the chimney
+      for(int i = 0; i < floo_pkg::NumDirections; i++) begin
+        if((chimney_req_in[i].valid == 1'b1) && (chimney_req_out[i].ready == 1'b1) && (chimney_req_in[i].req.generic.hdr.axi_ch == AxiW)) begin
+          logic[floo_pkg::NumDirections-1:0] participants;
+          logic[floo_pkg::NumDirections-1:0] temp_participants;
+          axi_subfield_user_t abstraction;
+          participants = '0;
+
+          // Determint all input paricipants to fetch from their queues
+          participants = determintParticipant(chimney_req_in[i].req.axi_w.hdr.src_id, chimney_req_in[i].req.axi_w.hdr.mask);
+
+          // Only check reduction if we have more than 0 participant!
+          abstraction = chimney_req_in[i].req.axi_w.payload.user;
+          if(($countones(participants) > 0) && (abstraction.coll_operation_type == floo_pkg::OffloadReduction)) begin
+            logic[31:0] result;
+            logic[31:0] fetch_data_mask;
+            logic[AxiConfig.DataWidth-1:0] fetch_data;
+            logic[31:0] received_result;
+            result = '0;
+
+            // Fetch data from all involved Queues and calc the addition
+            for(int j = 0; j < floo_pkg::NumDirections; j++) begin
+              if(participants[j] == 1'b1) begin
+                fetch_data = data_queue[j].pop_back();
+                fetch_data_mask = fetch_data[31:0];
+                result = result + fetch_data_mask;
+              end
+            end
+
+            // Compare against received result
+            received_result = chimney_req_in[i].req.axi_w.payload.data[31:0];
+            if(result == received_result) begin
+              $display($time, " MONITOR %1d (W)           > Correct Reduction Result: %h For Masterset: %5b", i, received_result, participants);
+            end else begin
+              $display($time, " MONITOR %1d (W)           > Wrong Reduction Result: %h Golden Model: %h For Masterset: %5b", i, received_result, result, participants);
+            end
+          end
+        end
+      end
+
+
+    end
+  end
 
   // Debug Prints on all IF
   initial begin
-    $display($time, "Start IF Monitoring!");
+    $display($time, " Start IF Monitoring!");
     while(1) begin // run forever
       @(posedge clk);
 
       // Evaluate all incoming request to the router
       for(int i = 0; i < floo_pkg::NumDirections; i++) begin
-        if((chimney_req_in[i].valid == 1'b1) && (chimney_req_in[i].ready == 1'b1)) begin
+        if((chimney_req_in[i].valid == 1'b1) && (chimney_req_out[i].ready == 1'b1)) begin
           printChimneyRequest(chimney_req_in[i].req, i, "Ch-In ");
         end
       end
 
         // Evaluate all outgoing request from the router
       for(int i = 0; i < floo_pkg::NumDirections; i++) begin
-        if((chimney_req_out[i].valid == 1'b1) && (chimney_req_out[i].ready == 1'b1)) begin
+        if((chimney_req_out[i].valid == 1'b1) && (chimney_req_in[i].ready == 1'b1)) begin
           printChimneyRequest(chimney_req_out[i].req, i, "Ch-Out");
         end
       end
 
       // Evaluate all incoming response to the router
       for(int i = 0; i < floo_pkg::NumDirections; i++) begin
-        if((chimney_rsp_in[i].valid == 1'b1) && (chimney_rsp_in[i].ready == 1'b1)) begin
+        if((chimney_rsp_in[i].valid == 1'b1) && (chimney_rsp_out[i].ready == 1'b1)) begin
           printChimneyResponse(chimney_rsp_in[i].rsp, i, "Ch-In ");
+
         end
       end
       
       // Evaluate all outgoing response from the router
       for(int i = 0; i < floo_pkg::NumDirections; i++) begin
-        if((chimney_rsp_out[i].valid == 1'b1) && (chimney_rsp_out[i].ready == 1'b1)) begin
+        if((chimney_rsp_out[i].valid == 1'b1) && (chimney_rsp_in[i].ready == 1'b1)) begin
           printChimneyResponse(chimney_rsp_out[i].rsp, i, "Ch-Out");
         end  
       end
@@ -241,7 +341,7 @@ localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
   // Function to plot request (No support for AR channel)
   function void printChimneyRequest (floo_req_chan_t req, int i, string s);
     if(req.generic.hdr.axi_ch == AxiAw) begin
-      $display($time, " MONITOR %1d (AW) [%s] > M(Floo): %b M(AXI): %b C: %2b T: %4b Id: %4b Addr:%h", i, s, req.axi_aw.hdr.mask, req.axi_aw.payload.user, req.axi_aw.hdr.commtype, req.axi_aw.hdr.reduction_op, req.axi_aw.payload.id, req.axi_aw.payload.addr);
+      $display($time, " MONITOR %1d (AW) [%s] > M(Floo): %b M(AXI): %b C: %2b T: %4b Id: %4b Addr:%h Part: %5b", i, s, req.axi_aw.hdr.mask, req.axi_aw.payload.user, req.axi_aw.hdr.commtype, req.axi_aw.hdr.reduction_op, req.axi_aw.payload.id, req.axi_aw.payload.addr, determintParticipant(req.axi_aw.hdr.src_id, req.axi_aw.hdr.mask));
     end else if(req.generic.hdr.axi_ch == AxiW) begin
       $display($time, " MONITOR %1d (W)  [%s] > M(Floo): %b M(AXI): %b C: %2b T: %4b Data:%h Last: %1d", i, s, req.axi_w.hdr.mask, req.axi_w.payload.user, req.axi_w.hdr.commtype, req.axi_w.hdr.reduction_op, req.axi_w.payload.data, req.axi_w.payload.last);
     end else if(req.generic.hdr.axi_ch == AxiAr) begin
@@ -278,7 +378,7 @@ localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
     .OutFifoDepth                   (2),
     .RouteAlgo                      (floo_pkg::XYRouting),
     .id_t                           (id_t),
-    .NoLoopback                     (1'b0),
+    .NoLoopback                     (1'b1),
     .XYRouteOpt                     (1'b0),
     .EnMultiCast                    (1'b0),
     .EnReduction                    (1'b0),
@@ -294,7 +394,8 @@ localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
     .RdPipelineDepth                (3),
     .RdControllerComplex            (2),
     .RdPartialBufferSize            (3),
-    .RdTagBits                      (4)
+    .RdTagBits                      (4),
+    .InversedSrcDst                 (1'b0)
   ) i_dut_req (
     .clk_i                          (clk),
     .rst_ni                         (rst_n),
@@ -325,7 +426,8 @@ localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
     .OutFifoDepth                   (2),
     .RouteAlgo                      (floo_pkg::XYRouting),
     .id_t                           (id_t),
-    .NoLoopback                     (1'b0),
+    .NoLoopback                     (1'b1),
+    .XYRouteOpt                     (1'b0),
     .EnMultiCast                    (1'b1),
     .EnReduction                    (1'b0),
     .EnOffloadReduction             (1'b0),
@@ -340,7 +442,8 @@ localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
     .RdPipelineDepth                (3),
     .RdControllerComplex            (2),
     .RdPartialBufferSize            (3),
-    .RdTagBits                      (4)
+    .RdTagBits                      (4),
+    .InversedSrcDst                 (1'b0)
   ) i_dut_resp (
     .clk_i                          (clk),
     .rst_ni                         (rst_n),
@@ -419,7 +522,7 @@ localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
     .slv_req_t          (axi_out_req_t),
     .slv_rsp_t          (axi_out_rsp_t),
     .rule_t             (node_addr_region_t),
-    .AxiMaxBurstLen     (1),
+    .AxiMaxBurstLen     (6),
     .NumAddrRegions     (floo_pkg::NumDirections),
     .AddrRegions        (AddrRegions),
     .NumInvalidPath     (NumberInvalidPath),
@@ -440,7 +543,7 @@ localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
   // Iterate over all ports to assign a chimney and the coresspondng AXI logger
   for (genvar i = North; i <= Eject; i++) begin : gen_slaves
 
-    // TODO RAROTH: Assign the xy_id to determind the ???
+    // Assign FlooNoC ID to the router destinations
     if (i == North) begin : gen_north
       assign xy_id[i] = '{x: 2'd1, y: 2'd2, port_id: 1'd0};
     end else if (i == South) begin : gen_south

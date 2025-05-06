@@ -27,7 +27,9 @@ module floo_route_select
   /// Various types used in the routing algorithm
   parameter type         flit_t           = logic,
   parameter type         addr_rule_t      = logic,
-  parameter type         id_t             = logic[IdWidth-1:0]
+  parameter type         id_t             = logic[IdWidth-1:0],
+  /// Inversed SRC / DST if we want to support Multicast on the B response
+  parameter bit          InversedSrcDst       = 1'b0
 ) (
   input  logic                          clk_i,
   input  logic                          rst_ni,
@@ -104,10 +106,14 @@ module floo_route_select
 
     if (EnMultiCast) begin : gen_mcast_route_sel
       floo_route_xymask #(
-        .NumRoutes     ( NumRoutes ),
-        .flit_t        ( flit_t    ),
-        .id_t          ( id_t      ),
-        .FwdMode       ( 1         )
+        .NumRoutes     ( NumRoutes        ),
+        .flit_t        ( flit_t           ),
+        .id_t          ( id_t             ),
+        // TODO (raroth) Why da fuck does it work like that???
+        .FwdMode       ( 1'b0             ),
+        .InvertSrcDst  ( 1'b1   )
+        //.FwdMode       ( 1'b1             ),
+        //.InvertSrcDst  ( InversedSrcDst   )
       ) i_route_xymask (
         .channel_i   ( channel_i ),
         .xy_id_i     ( xy_id_i   ),

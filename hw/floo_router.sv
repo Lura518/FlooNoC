@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: SHL-0.51
 //
 // Michael Rogenmoser <michaero@iis.ee.ethz.ch>
+// Raphael Roth <raroth@student.ethz.ch>
 
 `include "common_cells/assertions.svh"
 `include "common_cells/registers.svh"
@@ -65,6 +66,8 @@ module floo_router
   parameter int unsigned RdPartialBufferSize  = 2,
   parameter int unsigned RdTagBits            = 4,
   parameter bit          RdSupportAxi         = 1'b1,
+  /// Inversed SRC / DST if we want to support Multicast on the B response
+  parameter bit          InversedSrcDst       = 1'b0
 ) (
   input  logic                                       clk_i,
   input  logic                                       rst_ni,
@@ -151,7 +154,9 @@ module floo_router
         .id_t             ( id_t             ),
         .NumAddrRules     ( NumAddrRules     ),
         .addr_rule_t      ( addr_rule_t      ),
-        .EnMultiCast      ( EnMultiCast      )
+        .EnMultiCast      ( EnMultiCast      ),
+        .InversedSrcDst   ( InversedSrcDst   )
+
       ) i_route_select (
         .clk_i,
         .rst_ni,
@@ -271,7 +276,7 @@ module floo_router
       .reduction_resp_data_i      (offload_resp_result_i),
       .reduction_resp_valid_i     (offload_resp_valid_i),
       .reduction_resp_ready_o     (offload_resp_ready_o)      
-    );    
+    );
   end else begin
     assign red_data_out = '0;
     assign red_valid_out = '0;
