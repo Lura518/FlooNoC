@@ -109,11 +109,7 @@ module floo_route_select
         .NumRoutes     ( NumRoutes        ),
         .flit_t        ( flit_t           ),
         .id_t          ( id_t             ),
-        // TODO (raroth) Why da fuck does it work like that???
-        .FwdMode       ( 1'b0             ),
-        .InvertSrcDst  ( 1'b1   )
-        //.FwdMode       ( 1'b1             ),
-        //.InvertSrcDst  ( InversedSrcDst   )
+        .FwdMode       ( 1'b1             )
       ) i_route_xymask (
         .channel_i   ( channel_i ),
         .xy_id_i     ( xy_id_i   ),

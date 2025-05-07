@@ -172,7 +172,7 @@ module floo_route_xymask import floo_pkg::*; #(
       // e.g. the North / South can only be selected if we are in the correct dst columne.
       // We expect a packet from the north if the current y id is higher/equal as the destination but still
       // inside the expected maximum range of the source reduction. Same for the South!
-      if(xy_id.x == dst_id.x) begin
+      if(xy_id_i.x == dst_id.x) begin
         if((xy_id_i.y >= dst_id.y) && (xy_id_i.y < src_id_max.y)) begin
           route_expected_input[North] = 1'b1;
         end
@@ -196,6 +196,9 @@ module floo_route_xymask import floo_pkg::*; #(
       end
     end
   end
+
+  // Eiter assign the expected input or the output depending on the Mode
+  assign route_sel_o = (FwdMode) ? route_ouput : route_expected_input;
 
   // We only support five input/output routes
   `ASSERT_INIT(NoMultiCastSupport, NumRoutes == 5)
