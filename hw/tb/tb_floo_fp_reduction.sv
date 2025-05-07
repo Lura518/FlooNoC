@@ -94,19 +94,23 @@ module tb_floo_fp_reduction;
   // If you change these value then change the value @ the function generateParticpants!
   localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
     '{idx: Eject, start_addr: 32'h00110000, end_addr: 32'h00120000},  // Local Port TODO: Is this correct?
-    '{idx: West, start_addr: 32'h00100000, end_addr: 32'h00110000},   // West
+    '{idx: West,  start_addr: 32'h00100000, end_addr: 32'h01010000},   // West
     '{idx: South, start_addr: 32'h00010000, end_addr: 32'h00020000},  // South
-    '{idx: East, start_addr: 32'h00120000, end_addr: 32'h00130000},   // East
+    '{idx: East,  start_addr: 32'h00120000, end_addr: 32'h00130000},   // East
     '{idx: North, start_addr: 32'h00210000, end_addr: 32'h00220000}   // North
   };
 
   // Due to the build up of the testbench we have some invalid path due to the routing.
-  localparam int NumberInvalidPath = 9;
+  localparam int NumberInvalidPath = 13;
   localparam node_addr_region_t [NumberInvalidPath-1:0] InvalidPath = '{
     '{idx: 0, start_addr: 32'h00010000, end_addr: 32'h00120000},      // S-E
     '{idx: 0, start_addr: 32'h00010000, end_addr: 32'h00100000},      // S-W
     '{idx: 0, start_addr: 32'h00210000, end_addr: 32'h00120000},      // N-E
     '{idx: 0, start_addr: 32'h00210000, end_addr: 32'h00100000},      // N-W
+    '{idx: 0, start_addr: 32'h00120000, end_addr: 32'h00010000},      // E-S
+    '{idx: 0, start_addr: 32'h00100000, end_addr: 32'h00010000},      // W-S
+    '{idx: 0, start_addr: 32'h00120000, end_addr: 32'h00210000},      // E-N
+    '{idx: 0, start_addr: 32'h00100000, end_addr: 32'h00210000},      // W-N
     '{idx: 0, start_addr: 32'h00110000, end_addr: 32'h00110000},      // E-E
     '{idx: 0, start_addr: 32'h00100000, end_addr: 32'h00100000},      // W-W
     '{idx: 0, start_addr: 32'h00010000, end_addr: 32'h00010000},      // S-S
