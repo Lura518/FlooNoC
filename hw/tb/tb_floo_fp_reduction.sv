@@ -5,8 +5,17 @@
 // Tim Fischer <fischeti@iis.ee.ethz.ch>
 // Raphael Roth  <raroth@student.ethz.ch>
 
-// Due to the route selection when generating the reduction we get some combination of master and
-// slave address spaces that are not allowed to be generated!
+// !!! ATTENTION: THIS TESTBENCH DOESN'T WORK PROPERLY !!!
+
+// The problem of the testbench is that the simulated system is too small.
+// Due to XY Routing we can only test certain routes.
+// Additionally the AXI_RAND_(REDUCTION)_MASTER was never really designed to be used in such a way.
+// Therefor to have a fully functional testbench we would implement too many edge cases which can not be generated
+// which however goes against concept of a random testbench!
+
+// The current implementation runs 2 successful reduction and then fail due to an mask generation error.
+// As all the (found) error lies in the testbench generation it was decided to continue with system integration
+// rather than generation a fully working tb.
 
 `include "axi/typedef.svh"
 `include "axi/assign.svh"
@@ -19,10 +28,10 @@ module tb_floo_fp_reduction;
   import floo_pkg::*;
 
   /* Functions */
-  // Function to generate a chimney config with a RoB
+  // Function to generate a chimney config without a ROB
   function automatic chimney_cfg_t gen_rob_chimney_cfg();
     chimney_cfg_t cfg = ChimneyDefaultCfg;
-    cfg.BRoBType = SimpleRoB;
+    cfg.BRoBType = NoRoB;
     cfg.BRoBSize = 64;
     cfg.RRoBType = NoRoB;
     cfg.RRoBSize = 64;
@@ -35,9 +44,9 @@ module tb_floo_fp_reduction;
   localparam time TestTime = 8ns;
 
   localparam int unsigned NumReductions = 2;
-
   localparam chimney_cfg_t RoBChimneyCfg = gen_rob_chimney_cfg();
 
+  // AXI Narrow Config
   localparam floo_pkg::axi_cfg_t AxiNarrow = '{
     AddrWidth: 32,
     DataWidth: 64,
@@ -46,7 +55,7 @@ module tb_floo_fp_reduction;
     OutIdWidth: 4
   };
 
-  // AXI nw_chimney parameters
+  // AXI Wide Config
   localparam floo_pkg::axi_cfg_t AxiWide = '{
     AddrWidth: 32,
     DataWidth: 512,
@@ -62,7 +71,7 @@ module tb_floo_fp_reduction;
     floo_pkg::reduction_op_e coll_offload_ops;
   } axi_subfield_user_t;
 
-  // TODO: Change @ Chimney too because Questa pisses itself if we use AxiConfig there
+  // Change @ Chimney too because Questa pisses itself if we use AxiConfig there
   //localparam floo_pkg::axi_cfg_t AxiConfig = AxiWide;  // Wide AXI Link
   localparam floo_pkg::axi_cfg_t AxiConfig = AxiNarrow;  // Narrow AXI Link
 
@@ -93,7 +102,7 @@ module tb_floo_fp_reduction;
   // Generate the adress scope of each individal master
   // If you change these value then change the value @ the function generateParticpants!
   localparam node_addr_region_t [floo_pkg::NumDirections-1:0] AddrRegions = '{
-    '{idx: Eject, start_addr: 32'h00110000, end_addr: 32'h00120000},  // Local Port TODO: Is this correct?
+    '{idx: Eject, start_addr: 32'h00110000, end_addr: 32'h00120000},  // Local Port
     '{idx: West,  start_addr: 32'h00100000, end_addr: 32'h01010000},   // West
     '{idx: South, start_addr: 32'h00010000, end_addr: 32'h00020000},  // South
     '{idx: East,  start_addr: 32'h00120000, end_addr: 32'h00130000},   // East
@@ -101,7 +110,7 @@ module tb_floo_fp_reduction;
   };
 
   // Due to the build up of the testbench we have some invalid path due to the routing.
-  localparam int NumberInvalidPath = 13;
+  localparam int NumberInvalidPath = 8;
   localparam node_addr_region_t [NumberInvalidPath-1:0] InvalidPath = '{
     '{idx: 0, start_addr: 32'h00010000, end_addr: 32'h00120000},      // S-E
     '{idx: 0, start_addr: 32'h00010000, end_addr: 32'h00100000},      // S-W
@@ -110,13 +119,23 @@ module tb_floo_fp_reduction;
     '{idx: 0, start_addr: 32'h00120000, end_addr: 32'h00010000},      // E-S
     '{idx: 0, start_addr: 32'h00100000, end_addr: 32'h00010000},      // W-S
     '{idx: 0, start_addr: 32'h00120000, end_addr: 32'h00210000},      // E-N
-    '{idx: 0, start_addr: 32'h00100000, end_addr: 32'h00210000},      // W-N
-    '{idx: 0, start_addr: 32'h00110000, end_addr: 32'h00110000},      // E-E
-    '{idx: 0, start_addr: 32'h00100000, end_addr: 32'h00100000},      // W-W
-    '{idx: 0, start_addr: 32'h00010000, end_addr: 32'h00010000},      // S-S
-    '{idx: 0, start_addr: 32'h00120000, end_addr: 32'h00120000},      // E-E
-    '{idx: 0, start_addr: 32'h00210000, end_addr: 32'h00210000}       // N-N
+    '{idx: 0, start_addr: 32'h00100000, end_addr: 32'h00210000}      // W-N
   };
+
+  // Due to the fact of XY routing we limit the number of possible masks for each destination address!
+  // The index is used to generate a mask for the destination address to avoid handeling the lower 16-Bit in the 
+  // AXI rand master!
+ localparam int NumPossibleMask = 8;
+ localparam node_addr_region_t [NumPossibleMask-1:0] PossibleMasks = '{
+   '{idx: 32'hFFFF0000, start_addr: 32'h00100000, end_addr: 32'h00030000},
+   '{idx: 32'hFFFF0000, start_addr: 32'h00010000, end_addr: 32'h00300000},
+   '{idx: 32'hFFFF0000, start_addr: 32'h00120000, end_addr: 32'h00030000},
+   '{idx: 32'hFFFF0000, start_addr: 32'h00210000, end_addr: 32'h00300000},
+   '{idx: 32'hFFFF0000, start_addr: 32'h00110000, end_addr: 32'h00030000},
+   '{idx: 32'hFFFF0000, start_addr: 32'h00110000, end_addr: 32'h00300000},
+   '{idx: 32'hFFFF0000, start_addr: 32'h00110000, end_addr: 32'h00110000},
+   '{idx: 32'hFFFF0000, start_addr: 32'h00110000, end_addr: 32'h00330000}
+ };
 
   /* Variable declaration */
 
@@ -177,36 +196,6 @@ module tb_floo_fp_reduction;
     assign chimney_rsp_in[i].valid = chimney_rsp_in_valid[i];
     assign chimney_rsp_in[i].ready = chimney_rsp_in_ready[i];
   end
-/*
-  // Determint the reduction participant
-  function logic[floo_pkg::NumDirections-1:0] determintParticipant (int master, axi_subfield_user_t mask);
-    logic[floo_pkg::NumDirections-1:0] participants;
-    logic[AxiConfig.AddrWidth-1:0] mask_dont_care_bits;
-    logic[AxiConfig.AddrWidth-1:0] masked_mask;
-
-    logic[AxiConfig.AddrWidth-1:0] rule_mask;
-    logic[AxiConfig.AddrWidth-1:0] rule_start_addr;
-    logic[AxiConfig.AddrWidth-1:0] mst_start_addr;
-
-    // Change here for new address schem
-    mask_dont_care_bits = 32'hFFCCFFFF;
-    masked_mask = mask_dont_care_bits | mask.mask;
-
-    participants = '0;
-    mst_start_addr = AddrRegions[master].start_addr;
-
-    for(int i = 0; i < floo_pkg::NumDirections; i++) begin
-      rule_mask       = AddrRegions[i].end_addr - AddrRegions[i].start_addr - 1;
-      rule_start_addr = AddrRegions[i].start_addr;
-
-      if(&((~(mst_start_addr ^ rule_start_addr) | (rule_mask | mask.mask)))) begin
-        participants = participants | (1 << i);
-      end
-    end
-
-    return participants;
-  endfunction
-*/
 
   // Determint the reduction participant
   function logic[floo_pkg::NumDirections-1:0] determintParticipant (id_t src, id_t mask);
@@ -319,7 +308,6 @@ module tb_floo_fp_reduction;
       for(int i = 0; i < floo_pkg::NumDirections; i++) begin
         if((chimney_rsp_in[i].valid == 1'b1) && (chimney_rsp_out[i].ready == 1'b1)) begin
           printChimneyResponse(chimney_rsp_in[i].rsp, i, "Ch-In ");
-
         end
       end
       
@@ -362,9 +350,6 @@ module tb_floo_fp_reduction;
     end
 	endfunction
 
-
-
-
   // clock and reset generation
   clk_rst_gen #(
     .ClkPeriod    ( CyclTime ),
@@ -382,7 +367,7 @@ module tb_floo_fp_reduction;
     .OutFifoDepth                   (2),
     .RouteAlgo                      (floo_pkg::XYRouting),
     .id_t                           (id_t),
-    .NoLoopback                     (1'b1),
+    .NoLoopback                     (1'b0),
     .XYRouteOpt                     (1'b0),
     .EnMultiCast                    (1'b0),
     .EnReduction                    (1'b0),
@@ -430,7 +415,7 @@ module tb_floo_fp_reduction;
     .OutFifoDepth                   (2),
     .RouteAlgo                      (floo_pkg::XYRouting),
     .id_t                           (id_t),
-    .NoLoopback                     (1'b1),
+    .NoLoopback                     (1'b0),
     .XYRouteOpt                     (1'b0),
     .EnMultiCast                    (1'b1),
     .EnReduction                    (1'b0),
@@ -531,6 +516,8 @@ module tb_floo_fp_reduction;
     .AddrRegions        (AddrRegions),
     .NumInvalidPath     (NumberInvalidPath),
     .InvalidPath        (InvalidPath),
+    .NumPossibleMask    (NumPossibleMask),
+    .PossibleMask       (PossibleMasks),
     .NumReductions      (NumReductions),
     .NumTestPorts       (floo_pkg::NumDirections),
     .NumInfligthElem    (2)

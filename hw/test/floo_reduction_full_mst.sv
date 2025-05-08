@@ -32,6 +32,8 @@ module floo_reduction_full_mst #(
     parameter rule_t [NumAddrRegions-1:0]   AddrRegions     = '0,
     parameter int unsigned                  NumInvalidPath  = 0,
     parameter rule_t [NumInvalidPath-1:0]   InvalidPath     = '0,
+    parameter int unsigned                  NumPossibleMask = 0,
+    parameter rule_t [NumPossibleMask-1:0]  PossibleMask    = '0,
     parameter int unsigned                  NumReductions   = 10,
     parameter int unsigned                  NumTestPorts    = 5,
     parameter int unsigned                  NumInfligthElem = 20
@@ -76,6 +78,7 @@ module floo_reduction_full_mst #(
         .rule_t                         (rule_t), 
         .NoAddrRules                    (NumAddrRegions ),
         .NoInvalidPath                  (NumInvalidPath),
+        .NoPossibleMask                 (NumPossibleMask),
         .NoMsts                         (NumTestPorts),
         .NoSlvs                         (NumTestPorts),
         .NoRedPorts                     (NumTestPorts),
@@ -84,7 +87,8 @@ module floo_reduction_full_mst #(
         .ENABLE_EXCLUSIVE_REDUCTION     (1'b1),
         .ReductionId                    (2),
         .AddrMap                        (AddrRegions),
-        .InvalidPath                    (InvalidPath)
+        .InvalidPath                    (InvalidPath),
+        .PossibleMask                   (PossibleMask)
     ) axi_reduction_rand_master_t;
 
     // Generate the typedef for the slave
