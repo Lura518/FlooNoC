@@ -7,7 +7,7 @@ packages:
     dependencies:
     - common_cells
   axi:
-    revision: 0443039abd4af889e0186827d8a1a7b33ad7131f
+    revision: 63a7ea204abde6a3f24de500f83ab44cd409adcf
     version: 0.39.6
     source:
       Git: https://github.com/Lore0599/axi.git
