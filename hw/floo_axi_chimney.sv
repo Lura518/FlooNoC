@@ -848,4 +848,7 @@ module floo_axi_chimney #(
   `ASSERT(NoSbrPortWRequest,  ChimneyCfg.EnSbrPort || !(floo_req_in_valid &&
                                              (unpack_req_generic.hdr.axi_ch == AxiW)))
 
+  // We do not support reduction with ROB Buffer
+  `ASSERT_INIT(NoRobReduction, !EnCollectiveOperation || (ChimneyCfg.BRoBType == NoRoB && ChimneyCfg.RRoBType == NoRoB))
+
 endmodule
