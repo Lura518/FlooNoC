@@ -70,9 +70,12 @@ module floo_axi_chimney #(
   parameter type sram_cfg_t                 = logic,
   /// Struct to interpret the multicast mask in the user bits. Only used if `EnMultiCast == 1'b1`.
   /// It expects at least a field `mask`, which has the same size as the address:
+  /// If the Reduction is enabled we require the subfield op_type and op_code
   /// typedef struct packed {
-  ///   logic [AxiCfg.AddrWidth-1:0] mask;
-  ///   logic [AxiCfg.UserWidth-1:0] user;
+  ///   logic [AxiCfg.AddrWidth-1:0] mcast_mask;
+  ///   logic [AxiCfg.UserWidth-1:0] user; ???
+  ///   floo_pkg::collect_comm_e     coll_type;
+  ///   floo_pkg::reduction_op_e     coll_op;      (4 Bit wide signal! - Which encompass the op for Offload Reduction / Parallel Reduction)
   /// } user_struct_t;
   /// The `mask` field will not be transported over the NoC, while the `user` field will be.
   parameter type user_struct_t              = logic
@@ -124,6 +127,8 @@ module floo_axi_chimney #(
   axi_req_t axi_req_in;
   axi_rsp_t axi_rsp_out;
   user_mask_t axi_req_in_mask;
+  floo_pkg::collect_comm_e axi_req_in_red_comm_type;
+  floo_pkg::reduction_op_e axi_req_in_red_op;
 
   // AX queue
   axi_aw_chan_t axi_aw_queue;
@@ -131,6 +136,8 @@ module floo_axi_chimney #(
   logic axi_aw_queue_valid_out, axi_aw_queue_ready_in;
   logic axi_ar_queue_valid_out, axi_ar_queue_ready_in;
   user_mask_t axi_mask_queue;
+  floo_pkg::collect_comm_e axi_red_comm_type_queue;
+  floo_pkg::reduction_op_e axi_red_op_queue;
 
   // AXI req/rsp arbiter
   floo_req_chan_t [AxiW:AxiAr] floo_req_arb_in;
@@ -207,6 +214,17 @@ module floo_axi_chimney #(
       assign axi_req_in_mask = '0;
     end
 
+    // Extract the reduction information if frm the AXI user bits
+    if(EnCollectiveOperation) begin : gen_collectiv_operation
+      user_struct_t user;
+      assign user = axi_in_req_i.aw.user;
+      assign axi_req_in_red_comm_type = user.coll_type;
+      assign axi_req_in_red_op = user.coll_op;
+    end else begin : gen_no_collectiv_operation
+      assign axi_req_in_red_comm_type = '0;
+      assign axi_req_in_red_op = '0;
+    end
+
     if (ChimneyCfg.CutAx) begin : gen_ax_cuts
       spill_register #(
         .T ( axi_aw_chan_t )
@@ -235,7 +253,7 @@ module floo_axi_chimney #(
       );
       if (RouteCfg.EnMultiCast) begin : gen_mask_cuts
         spill_register #(
-          .T (logic [AxiCfg.UserWidth-1:0])
+          .T (user_mask_t)
         ) i_usermask_queue (
           .clk_i,
           .rst_ni,
@@ -249,6 +267,36 @@ module floo_axi_chimney #(
       end else begin : gen_no_mask_cuts
         assign axi_mask_queue = '0;
       end
+      // Cut all signals used for the collectiv operations (type of operation and operation)
+      if(EnCollectiveOperation) begin : gen_collectiv_operation_cuts
+        spill_register #(
+          .T (floo_pkg::collect_comm_e)
+        ) i_coll_type_queue (
+          .clk_i,
+          .rst_ni,
+          .data_i   ( axi_req_in_red_comm_type ),
+          .valid_i  ( axi_req_in.aw_valid ),
+          .ready_o  (  ),
+          .data_o   ( axi_red_comm_type_queue ),
+          .valid_o  (  ),
+          .ready_i  ( axi_aw_queue_ready_in )
+        );
+        spill_register #(
+          .T (floo_pkg::reduction_op_e)
+        ) i_coll_operation_queue (
+          .clk_i,
+          .rst_ni,
+          .data_i   ( axi_req_in_red_op ),
+          .valid_i  ( axi_req_in.aw_valid ),
+          .ready_o  (  ),
+          .data_o   ( axi_red_op_queue ),
+          .valid_o  (  ),
+          .ready_i  ( axi_aw_queue_ready_in )
+        );
+      end else begin : gen_no_collectiv_operation_cuts
+        assign axi_red_comm_type_queue = '0;
+        assign axi_red_op_queue = '0;
+      end
     end else begin : gen_no_ax_cuts
       assign axi_aw_queue = axi_in_req_i.aw;
       assign axi_aw_queue_valid_out = axi_in_req_i.aw_valid;
@@ -257,6 +305,8 @@ module floo_axi_chimney #(
       assign axi_ar_queue_valid_out = axi_in_req_i.ar_valid;
       assign axi_rsp_out.ar_ready = axi_ar_queue_ready_in;
       assign axi_mask_queue = axi_req_in_mask;
+      assign axi_red_comm_type_queue = axi_req_in_red_comm_type;
+      assign axi_red_op_queue = axi_req_in_red_op;
     end
 
   end else begin : gen_err_slv_port
@@ -278,6 +328,8 @@ module floo_axi_chimney #(
     assign axi_aw_queue_valid_out = 1'b0;
     assign axi_ar_queue_valid_out = 1'b0;
     assign axi_mask_queue = '0;
+    assign axi_red_comm_type_queue = '0;
+    assign axi_red_op_queue = '0;
   end
 
   if (ChimneyCfg.CutRsp) begin : gen_rsp_cuts
@@ -467,6 +519,11 @@ module floo_axi_chimney #(
   user_mask_t [NumAxiChannels-1:0] axi_req_user;
   mask_sel_t [NumAxiChannels-1:0] x_mask_sel, y_mask_sel;
 
+  floo_pkg::collect_comm_e [NumAxiChannels-1:0] red_coll_type;
+  floo_pkg::collect_comm_e red_coll_type_q;
+  floo_pkg::reduction_op_e [NumAxiChannels-1:0] red_coll_operation;
+  floo_pkg::reduction_op_e red_coll_operation_q;
+
   assign axi_req_addr[AxiAw] = axi_aw_queue.addr;
   assign axi_req_addr[AxiAr] = axi_ar_queue.addr;
 
@@ -553,10 +610,43 @@ module floo_axi_chimney #(
     assign mcast_mask[AxiR]  = ar_out_hdr_out.hdr.mask;
     assign mcast_mask[AxiB]  = aw_out_hdr_out.hdr.mask;
 
-    `FFL(axi_aw_mask_q, mcast_mask[AxiAw], axi_aw_queue_valid_out &&
-                                     axi_aw_queue_ready_in, '0)
+    `FFL(axi_aw_mask_q, mcast_mask[AxiAw], axi_aw_queue_valid_out && axi_aw_queue_ready_in, '0)
+    
   end else begin: gen_no_mcast_mask
     assign mcast_mask = '0;
+  end
+
+  // Because the W doesn't have a user field it is required to store the AW user field
+  // for all following W beats! For the collectiv operations this encompass the type and the
+  // operation we want to apply to the data!
+
+  // Currently any reduction have to either be on the AW/W channel
+  // If the chimney receives an Multicast / Reduction it will automatically update the resonse
+  // to the appropriate type (Multicast => Paralle Reduction with CollectB / Reduction => Multicast B Response)
+  if(EnCollectiveOperation) begin : gen_cache_collectiv_operation_data
+    // Assign all collective type
+    assign red_coll_type[AxiAw] = axi_red_comm_type_queue;
+    assign red_coll_type[AxiAr] = '0;
+    assign red_coll_type[AxiW] = red_coll_type_q;
+    assign red_coll_type[AxiR] = '0;
+    assign red_coll_type[AxiB] = '0;
+
+    // Store the coll type!
+    `FFL(red_coll_type_q, axi_red_comm_type_queue, axi_aw_queue_valid_out && axi_aw_queue_ready_in, '0)
+
+    // Assign all collective operation
+    assign red_coll_operation[AxiAw] = axi_red_op_queue;
+    assign red_coll_operation[AxiAr] = '0;
+    assign red_coll_operation[AxiW] = red_coll_operation_q;
+    assign red_coll_operation[AxiR] = '0;
+    assign red_coll_operation[AxiB] = '0;
+
+    // Store the coll operation!
+    `FFL(red_coll_operation_q, axi_red_op_queue, axi_aw_queue_valid_out && axi_aw_queue_ready_in, '0)
+
+  end else begin : gen_no_collectiv_operation_data
+    assign red_coll_type = '0;
+    assign red_coll_operation = '0;
   end
 
   ///////////////////
@@ -574,7 +664,13 @@ module floo_axi_chimney #(
     floo_axi_aw.hdr.axi_ch  = AxiAw;
     floo_axi_aw.hdr.atop    = axi_aw_queue.atop != axi_pkg::ATOP_NONE;
     floo_axi_aw.payload     = axi_aw_queue;
-    floo_axi_aw.hdr.commtype = (mcast_mask[AxiAw] != '0)? Multicast : Unicast;
+    // Assign the commtype and operation to the AW flit
+    if(EnCollectiveOperation) begin
+      floo_axi_aw.hdr.commtype = red_coll_type[AxiAw];
+      floo_axi_aw.hdr.reduction_op = red_coll_operation[AxiAw];
+    end else begin
+      floo_axi_aw.hdr.commtype = (mcast_mask[AxiAw] != '0)? Multicast : Unicast;
+    end
   end
 
   always_comb begin
@@ -587,7 +683,13 @@ module floo_axi_chimney #(
     floo_axi_w.hdr.last     = axi_req_in.w.last;
     floo_axi_w.hdr.axi_ch   = AxiW;
     floo_axi_w.payload      = axi_req_in.w;
-    floo_axi_w.hdr.commtype = (mcast_mask[AxiW] != '0)? Multicast : Unicast;
+    // Assign the commtype and operation to the W flit
+    if(EnCollectiveOperation) begin
+      floo_axi_w.hdr.commtype = red_coll_type[AxiW];
+      floo_axi_w.hdr.reduction_op = red_coll_operation[AxiW];
+    end else begin
+      floo_axi_w.hdr.commtype = (mcast_mask[AxiW] != '0)? Multicast : Unicast;
+    end
   end
 
   always_comb begin
@@ -615,7 +717,22 @@ module floo_axi_chimney #(
     floo_axi_b.hdr.atop     = aw_out_hdr_out.hdr.atop;
     floo_axi_b.payload      = meta_buf_rsp_out.b;
     floo_axi_b.payload.id   = aw_out_hdr_out.id;
-    floo_axi_b.hdr.commtype = (aw_out_hdr_out.hdr.commtype == Multicast)? CollectB : Unicast;
+    // We need to adapt the B Response according to the incoming AW Request earlier
+    // The AXI member on the chimney should not be aware of a reduction / multicast!
+    // Multicast --> Collect the B responses in a parallel reduction
+    // Reduction --> Multicast the B response to all members
+    if(EnCollectiveOperation == 1'b1) begin
+      if(aw_out_hdr_out.hdr.commtype == Multicast) begin
+        floo_axi_b.hdr.commtype = ParallelReduction;
+        floo_axi_b.hdr.reduction_op = CollectB;
+      end else if(aw_out_hdr_out.hdr.commtype == OffloadReduction) begin
+        floo_axi_b.hdr.commtype = Multicast;
+      end else begin
+        floo_axi_b.hdr.commtype = Unicast;
+      end
+    end else begin
+      floo_axi_b.hdr.commtype = (aw_out_hdr_out.hdr.commtype == Multicast)? CollectB : Unicast;
+    end
   end
 
   always_comb begin
@@ -850,5 +967,8 @@ module floo_axi_chimney #(
 
   // We do not support reduction with ROB Buffer
   `ASSERT_INIT(NoRobReduction, !EnCollectiveOperation || (ChimneyCfg.BRoBType == NoRoB && ChimneyCfg.RRoBType == NoRoB))
+
+  // We do not support reduction without multicast
+  `ASSERT_INIT(NoReductionWithoutMulticast, (EnMultiCast || !EnCollectiveOperation))
 
 endmodule
