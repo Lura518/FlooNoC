@@ -65,9 +65,7 @@ module floo_router
   parameter int unsigned RdControllerComplex  = 2,
   parameter int unsigned RdPartialBufferSize  = 2,
   parameter int unsigned RdTagBits            = 4,
-  parameter bit          RdSupportAxi         = 1'b1,
-  /// Inversed SRC / DST if we want to support Multicast on the B response
-  parameter bit          InversedSrcDst       = 1'b0
+  parameter bit          RdSupportAxi         = 1'b1
 ) (
   input  logic                                       clk_i,
   input  logic                                       rst_ni,
@@ -101,11 +99,6 @@ module floo_router
   // When a offloadreduction is dedected then the data will be split off infront of the crossbar.
   // The completly reduced result will be inserted in the outpur arbiter for each output port therefor
   // requiring an extra port.
-
-  // TODO RAROTH: when a reduction only involve one member then we could bypass the hole reduction part
-  //              required changes:
-  //              - move the block "floo_route_xymask" outside and do the $onehot() on the result!
-  //              - change the condition of the stream_mux accordingly
 
   // Generate local Number of routes
   localparam int unsigned localNumInputs = (EnOffloadReduction == 1'b1) ? (NumInput + 1) : (NumInput);
@@ -154,14 +147,11 @@ module floo_router
         .id_t             ( id_t             ),
         .NumAddrRules     ( NumAddrRules     ),
         .addr_rule_t      ( addr_rule_t      ),
-        .EnMultiCast      ( EnMultiCast      ),
-        .InversedSrcDst   ( InversedSrcDst   )
-
+        .EnMultiCast      ( EnMultiCast      )
       ) i_route_select (
         .clk_i,
         .rst_ni,
         .test_enable_i,
-
         .xy_id_i        ( xy_id_i               ),
         .id_route_map_i ( id_route_map_i        ),
         .channel_i      ( in_data       [in][v] ),
@@ -210,9 +200,7 @@ module floo_router
         );
 
         // onehot decoding of the input direction
-        // TODO (raroth): Switch the line if we are not in the testbench as the testbench generates requests that
-        //              return to the same port! In the real system this will never work!
-        // assign red_single_member[in][v] = $onehot(red_expected_in_route[in][v]);
+        // bypass the reduction if only one input member is selected (if none is selected then bypass too [should never occure but to avoid deadlocks])
         assign red_single_member[in][v] = $onehot(red_expected_in_route[in][v]) | (&(~red_expected_in_route[in][v]));
 
         // Generate the handshaking
@@ -280,6 +268,11 @@ module floo_router
   end else begin
     assign red_data_out = '0;
     assign red_valid_out = '0;
+    assign offload_req_op_o = '0;
+    assign offload_req_operand1_o = '0;
+    assign offload_req_operand2_o = '0;
+    assign offload_req_valid_o = '0;
+    assign offload_resp_ready_o = '0;
   end
 
   // Normal crossbar between all in / out routes
@@ -372,12 +365,12 @@ module floo_router
         // Arbiter to be instantiated for reduction operations.
         // Repsonses from a multicast request are also treated as reductions.
         floo_output_arbiter #(
-          .NumRoutes     ( localNumInputs      ),
-          .flit_t        ( flit_t        ),
-          .payload_t     ( payload_t     ),
-          .NarrowRspMask ( NarrowRspMask ),
-          .WideRspMask   ( WideRspMask   ),
-          .id_t          ( id_t          )
+          .NumRoutes     ( localNumInputs ),
+          .flit_t        ( flit_t         ),
+          .payload_t     ( payload_t      ),
+          .NarrowRspMask ( NarrowRspMask  ),
+          .WideRspMask   ( WideRspMask    ),
+          .id_t          ( id_t           )
         ) i_output_arbiter (
           .clk_i,
           .rst_ni,
