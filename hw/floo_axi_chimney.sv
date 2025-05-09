@@ -731,7 +731,7 @@ module floo_axi_chimney #(
         floo_axi_b.hdr.commtype = Unicast;
       end
     end else begin
-      floo_axi_b.hdr.commtype = (aw_out_hdr_out.hdr.commtype == Multicast)? CollectB : Unicast;
+      floo_axi_b.hdr.commtype = (aw_out_hdr_out.hdr.commtype == Multicast)? ParallelReduction : Unicast;
     end
   end
 

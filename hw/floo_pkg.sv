@@ -90,24 +90,39 @@ package floo_pkg;
     /// Multicast communication
     Multicast = 2'd1,
     /// Reduction of AXI B-responses
-    CollectB = 2'd2,
+    ParallelReduction = 2'd2,
     /// Offload Reduction
     OffloadReduction = 2'd3
   } collect_comm_e;
 
   /// Different offloadable reduction
   typedef enum logic [3:0] { 
-    F_Add     = 4'b0000, // FP Addition
-    F_Mul     = 4'b0001, // FP Multiplication
-    F_Min     = 4'b0010, // FP Min
-    F_Max     = 4'b0011, // FP Max
-    G_Comb    = 4'b0111, // Combine the different request without OP
+    G_Comb    = 4'b0000, // Combine the different request without OP (AW channel) (TODO Replace code that is AW dependet!?!)
+    F_Add     = 4'b0100, // FP Addition
+    F_Mul     = 4'b0101, // FP Multiplication
+    F_Min     = 4'b0110, // FP Min
+    F_Max     = 4'b0111, // FP Max
     A_Add     = 4'b1000, // Atomic Add (signed)
     A_Mul     = 4'b1001, // (Non-) Atomic (signed)
     A_Min_S   = 4'b1010, // Atomic Min (signed)
     A_Min_U   = 4'b1110, // Atomic Min (unsigned)
     A_Max_S   = 4'b1011, // Atomic Max (signed)
     A_Max_U   = 4'b1111  // Atomic Max (unsigned)
+  } reduction_offload_op_e;
+
+  /// Different instantanous reduction
+  typedef enum logic [3:0] {
+    Combine   = 4'b0000,  // Combine the different request without OP (AW channel)
+    CollectB  = 4'b0001,  // Collect the B responses from an AXI transmission
+    LSBAnd    = 4'b0010   // And Connect all the LSB from the 
+  } reduction_parallel_op_e;
+
+  /// Union for both Datatype(s) - because they need to have the same size for the chimney
+  /// The chimney needs this information as it does not know if we support an offload reduction
+  /// or an parallel reduction.
+  typedef union packed {
+    reduction_offload_op_e op_offload;
+    reduction_parallel_op_e op_parallel;
   } reduction_op_e;
 
   /// The types of AXI channels in narrow-wide AXI network interfaces
