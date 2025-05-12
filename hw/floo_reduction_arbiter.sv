@@ -3,11 +3,14 @@
 // SPDX-License-Identifier: SHL-0.51
 //
 // Author: Chen Wu <chenwu@student.ethz.ch>
+//         Raphael Roth <raroth@student.ethz.ch>
 
 module floo_reduction_arbiter import floo_pkg::*;
 #(
   /// Number of input ports
-  parameter int unsigned NumRoutes  = 1,
+  parameter int unsigned NumRoutes            = 1,
+  /// Enable Parallel Reduction
+  parameter bit          EnParallelReduction  = 1'b0,
   /// Type definitions
   parameter type         flit_t     = logic,
   parameter type         payload_t  = logic,
@@ -28,6 +31,18 @@ module floo_reduction_arbiter import floo_pkg::*;
   input  logic                   ready_i,
   output flit_t                  data_o
 );
+
+  // We calculte the different reduction in parallel and select the result at the output
+  flit_t data_AW_flit;   
+  flit_t data_collectB;
+  flit_t data_LSBAnd;
+
+  // Logic bit to connect all LSB together
+  logic lsb;
+  logic [1:0] resp;
+
+  // Reduction mask for either the narrow or wide link
+  payload_t ReduceMask;
 
   // calculated expected input source lists for each input flit
   logic [NumRoutes-1:0]  in_route_mask;
@@ -58,14 +73,12 @@ module floo_reduction_arbiter import floo_pkg::*;
     .in_route_mask_o  ( in_route_mask )
   );
 
-  payload_t ReduceMask;
+  // Set the eduction mask for either the narrow or the wide link
   assign ReduceMask = data_i[input_sel].hdr.axi_ch==NarrowB? NarrowRspMask : WideRspMask;
 
-  logic [1:0] resp;
-
-  // Reduction operation
+  // Collect B response operation
   always_comb begin : gen_reduced_B
-    data_o = data_i[input_sel];
+    data_collectB = data_i[input_sel];
     // We check every input port from which we expect a response
     for (int i = 0; i < NumRoutes; i++) begin
       if(in_route_mask[i]) begin
@@ -81,13 +94,54 @@ module floo_reduction_arbiter import floo_pkg::*;
         // If one of the responses is an error, we return an error
         // otherwise we return the first response
         if(resp == axi_pkg::RESP_SLVERR) begin
-          data_o = data_i[i];
+          data_collectB = data_i[i];
           break;
         end
       end
     end
   end
 
+  // Forward AW flits directly - Just choose to forward the selected one
+  always_comb begin : gen_AW_forward
+    data_AW_flit = data_i[input_sel];
+  end
+
+  // And all the LSB
+  always_comb begin : gen_and_lsb
+    data_LSBAnd = data_i[input_sel];
+    lsb = 1'b1;
+    
+    // We check every input port from which we expect a response
+    for (int i = 0; i < NumRoutes; i++) begin
+      if(in_route_mask[i]) begin
+        // For every bit that is set in the mask, we and connect the last bit in the payload???
+        // TODO raroth: How da fuck sould i solve this?
+        lsb = lsb & data[i].payload[???];
+      end
+    end
+
+    // Assign the bit again
+    data_LSBAnd.payload[???] = lsb;
+  end
+
+  // If we support more than the inital parallel reduction
+  if(EnParallelReduction) begin
+    if((data_i[input_sel].hdr.axi_ch == AxiAw) || (data_i[input_sel].hdr.axi_ch == NarrowAw) || (data_i[input_sel].hdr.axi_ch == WideAw)) begin
+      // AW flit dedected
+      assign data_o = data_AW_flit;
+    end else begin
+      // Data flit dedected
+      if(data_i[input_sel].hdr.reduction_op == CollectB) begin
+        assign data_o = data_collectB;
+      end else if(data_i[input_sel].hdr.reduction_op == LSBAnd) begin
+        assign data_o = data_LSBAnd;
+      end
+    end
+  end else begin
+    assign data_o = data_collectB;
+  end
+
+  // Connect the ready signal
   assign ready_o = (ready_i & valid_o)? valid_i & in_route_mask : '0;
 
 endmodule

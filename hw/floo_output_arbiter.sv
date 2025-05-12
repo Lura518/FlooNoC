@@ -10,6 +10,8 @@ module floo_output_arbiter import floo_pkg::*;
 #(
   /// Number of input ports
   parameter int unsigned NumRoutes  = 1,
+  /// Enable parallel reduction feature
+  parameter bit          EnParallelReduction  = 1'b0,
   /// Type definitions
   parameter type         flit_t     = logic,
   parameter type         payload_t  = logic,
@@ -63,12 +65,13 @@ module floo_output_arbiter import floo_pkg::*;
   assign reduce_valid_in = valid_i & reduce_mask;
 
   floo_reduction_arbiter #(
-    .NumRoutes      ( NumRoutes     ),
-    .flit_t         ( flit_t        ),
-    .payload_t      ( payload_t     ),
-    .id_t           ( id_t          ),
-    .NarrowRspMask  ( NarrowRspMask ),
-    .WideRspMask    ( WideRspMask   )
+    .NumRoutes            ( NumRoutes           ),
+    .EnParallelReduction  ( EnParallelReduction ),
+    .flit_t               ( flit_t              ),
+    .payload_t            ( payload_t           ),
+    .id_t                 ( id_t                ),
+    .NarrowRspMask        ( NarrowRspMask       ),
+    .WideRspMask          ( WideRspMask         )
   ) i_reduction_arbiter (
     .xy_id_i,
     .data_i,

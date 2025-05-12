@@ -44,6 +44,8 @@ module floo_router
   parameter bit          EnReduction          = 1'b0,
   /// Enable offload reduction feature
   parameter bit          EnOffloadReduction   = 1'b0,
+  /// Enable parallel reduction feature
+  parameter bit          EnParallelReduction  = 1'b0,
   /// Various types
   parameter type         addr_rule_t          = logic,
   parameter type         flit_t               = logic,
@@ -365,12 +367,13 @@ module floo_router
         // Arbiter to be instantiated for reduction operations.
         // Repsonses from a multicast request are also treated as reductions.
         floo_output_arbiter #(
-          .NumRoutes     ( localNumInputs ),
-          .flit_t        ( flit_t         ),
-          .payload_t     ( payload_t      ),
-          .NarrowRspMask ( NarrowRspMask  ),
-          .WideRspMask   ( WideRspMask    ),
-          .id_t          ( id_t           )
+          .NumRoutes            ( localNumInputs      ),
+          .EnParallelReduction  ( EnParallelReduction ),
+          .flit_t               ( flit_t              ),
+          .payload_t            ( payload_t           ),
+          .NarrowRspMask        ( NarrowRspMask       ),
+          .WideRspMask          ( WideRspMask         ),
+          .id_t                 ( id_t                )
         ) i_output_arbiter (
           .clk_i,
           .rst_ni,
@@ -475,5 +478,7 @@ module floo_router
   `ASSERT_INIT(NoVirtChanSupport, !(EnOffloadReduction && (NumVirtChannels != 1)))
   // We only support symmetrical configuration for the FP reduction
   `ASSERT_INIT(NoSymConfig, !(EnOffloadReduction && (NumInput != NumOutput)))
+  // When en the parallel reduction we also need to enable the "normal" reduction
+  `ASSERT_INIT(SystemConfig, !EnParallelReduction || EnReduction)
 
 endmodule
