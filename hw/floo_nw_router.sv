@@ -31,6 +31,12 @@ module floo_nw_router #(
   parameter bit          XYRouteOpt           = 1'b1,
   /// Enable multicast feature
   parameter bit          EnMultiCast          = 1'b0,
+  /// Enable parallel reduction feature
+  parameter bit          EnParallelReduction  = 1'b0,
+  /// Enable offload reduction feature
+  parameter bit          EnOffloadWideReduction   = 1'b0,
+  /// Enable offload reduction on the narrow port
+  parameter bit          EnOffloadNarrowReduction = 1'b0,
   /// Node ID type
   parameter type id_t                         = logic,
   /// Header type
@@ -46,7 +52,24 @@ module floo_nw_router #(
   /// Floo `rsp` link type
   parameter type floo_rsp_t                   = logic,
   /// Floo `wide` link type
-  parameter type floo_wide_t                  = logic
+  parameter type floo_wide_t                  = logic,
+  /// Offload reduction parameter (Only Wide Link)
+  /// Possible operation for offloading (must match type in header)
+  parameter type         RdWideOperation_t    = logic,
+  parameter type         RdNarrowOperation_t  = logic,
+  /// Data type of the offload reduction
+  parameter type         RdWideData_t         = logic,
+  parameter type         RdNarrowData_t       = logic,
+  /// Depth and Fallthrough Configuration of the input Fifo
+  parameter bit          RdFifoFallThrough    = 1'b0,
+  parameter int unsigned RdFifoDepth          = 2,
+  /// Depth of the offload reduction pipeline
+  parameter int unsigned RdPipelineDepth      = 3,
+  /// Reduction controller configuration options
+  parameter int unsigned RdControllerComplex  = 2,
+  parameter int unsigned RdPartialBufferSize  = 2,
+  parameter int unsigned RdTagBits            = 4,
+  parameter bit          RdSupportAxi         = 1'b1
 ) (
   input  logic   clk_i,
   input  logic   rst_ni,
@@ -58,12 +81,32 @@ module floo_nw_router #(
   /// (only used for `RouteAlgo == IdTable`)
   input  addr_rule_t [NumAddrRules-1:0] id_route_map_i,
   /// Input and output links
-  input   floo_req_t [NumInputs-1:0] floo_req_i,
-  input   floo_rsp_t [NumOutputs-1:0] floo_rsp_i,
-  output  floo_req_t [NumOutputs-1:0] floo_req_o,
-  output  floo_rsp_t [NumInputs-1:0] floo_rsp_o,
-  input   floo_wide_t [NumRoutes-1:0] floo_wide_i,
-  output  floo_wide_t [NumRoutes-1:0] floo_wide_o
+  input   floo_req_t [NumInputs-1:0]    floo_req_i,
+  input   floo_rsp_t [NumOutputs-1:0]   floo_rsp_i,
+  output  floo_req_t [NumOutputs-1:0]   floo_req_o,
+  output  floo_rsp_t [NumInputs-1:0]    floo_rsp_o,
+  input   floo_wide_t [NumRoutes-1:0]   floo_wide_i,
+  output  floo_wide_t [NumRoutes-1:0]   floo_wide_o,
+  /// Wide IF towards the offload logic
+  output RdWideOperation_t              offload_wide_req_op_o,
+  output RdWideData_t                   offload_wide_req_operand1_o,
+  output RdWideData_t                   offload_wide_req_operand2_o,
+  output logic                          offload_wide_req_valid_o,
+  input logic                           offload_wide_req_ready_i,
+  /// Wide IF from external FPU
+  input RdWideData_t                    offload_wide_resp_result_i,
+  input logic                           offload_wide_resp_valid_i,
+  output logic                          offload_wide_resp_ready_o,
+  /// Narrow IF towards the offload logic
+  output RdNarrowOperation_t            offload_narrow_req_op_o,
+  output RdNarrowData_t                 offload_narrow_req_operand1_o,
+  output RdNarrowData_t                 offload_narrow_req_operand2_o,
+  output logic                          offload_narrow_req_valid_o,
+  input logic                           offload_narrow_req_ready_i,
+  /// Narrow IF from external FPU
+  input RdNarrowData_t                  offload_narrow_resp_result_i,
+  input logic                           offload_narrow_resp_valid_i,
+  output logic                          offload_narrow_resp_ready_o,
 );
 
   typedef logic [AxiCfgN.AddrWidth-1:0] axi_addr_t;
@@ -123,33 +166,52 @@ module floo_nw_router #(
   end
 
   floo_router #(
-    .NumInput         ( NumInputs               ),
-    .NumOutput        ( NumOutputs              ),
-    .NumPhysChannels  ( 1                       ),
-    .NumVirtChannels  ( 1                       ),
-    .InFifoDepth      ( InFifoDepth             ),
-    .OutFifoDepth     ( OutFifoDepth            ),
-    .RouteAlgo        ( RouteAlgo               ),
-    .XYRouteOpt       ( XYRouteOpt              ),
-    .NumAddrRules     ( NumAddrRules            ),
-    .NoLoopback       ( 1'b1                    ),
-    .EnMultiCast      ( EnMultiCast             ),
-    .EnReduction      ( 1'b0                    ),
-    .id_t             ( id_t                    ),
-    .addr_rule_t      ( addr_rule_t             ),
-    .flit_t           ( floo_req_generic_flit_t )
+    .NumInput             ( NumInputs                 ),
+    .NumOutput            ( NumOutputs                ),
+    .NumPhysChannels      ( 1                         ),
+    .NumVirtChannels      ( 1                         ),
+    .InFifoDepth          ( InFifoDepth               ),
+    .OutFifoDepth         ( OutFifoDepth              ),
+    .RouteAlgo            ( RouteAlgo                 ),
+    .XYRouteOpt           ( XYRouteOpt                ),
+    .NumAddrRules         ( NumAddrRules              ),
+    .NoLoopback           ( 1'b1                      ),
+    .EnMultiCast          ( EnMultiCast               ),
+    .EnReduction          ( EnParallelReduction       ),
+    .EnOffloadReduction   ( EnOffloadNarrowReduction  ),
+    .EnParallelReduction  ( EnParallelReduction       ),
+    .id_t                 ( id_t                      ),
+    .addr_rule_t          ( addr_rule_t               ),
+    .flit_t               ( floo_req_generic_flit_t   ),
+    .RdOperation_t        ( RdNarrowOperation_t       ),
+    .RdData_t             ( RdNarrowData_t            ),
+    .RdFifoFallThrough    ( RdFifoFallThrough         ),
+    .RdFifoDepth          ( RdFifoDepth               ),
+    .RdPipelineDepth      ( RdPipelineDepth           ),
+    .RdControllerComplex  ( RdControllerComplex       ),
+    .RdPartialBufferSize  ( RdPartialBufferSize       ),
+    .RdTagBits            ( RdTagBits                 ),
+    .RdSupportAxi         ( RdSupportAxi              )
   ) i_req_floo_router (
     .clk_i,
     .rst_ni,
     .test_enable_i,
-    .xy_id_i        ( id_i ),
+    .xy_id_i                  ( id_i                            ),
     .id_route_map_i,
-    .valid_i        ( req_valid_in  ),
-    .ready_o        ( req_ready_out ),
-    .data_i         ( req_in        ),
-    .valid_o        ( req_valid_out ),
-    .ready_i        ( req_ready_in  ),
-    .data_o         ( req_out       )
+    .valid_i                  ( req_valid_in                    ),
+    .ready_o                  ( req_ready_out                   ),
+    .data_i                   ( req_in                          ),
+    .valid_o                  ( req_valid_out                   ),
+    .ready_i                  ( req_ready_in                    ),
+    .data_o                   ( req_out                         ),
+    .offload_req_op_o         ( offload_narrow_req_op_o         ),
+    .offload_req_operand1_o   ( offload_narrow_req_operand1_o   ),
+    .offload_req_operand2_o   ( offload_narrow_req_operand2_o   ),
+    .offload_req_valid_o      ( offload_narrow_req_valid_o      ),
+    .offload_req_ready_i      ( offload_narrow_req_ready_i      ),
+    .offload_resp_result_i    ( offload_narrow_resp_result_i    ),
+    .offload_resp_valid_i     ( offload_narrow_resp_valid_i     ),
+    .offload_resp_ready_o     ( offload_narrow_resp_ready_o     )
   );
 
   // We construct the masks for the narrow and wide B responses here.
@@ -171,66 +233,95 @@ localparam axi_narrow_b_chan_t NarrowBMask = '{resp: 2'b11, default: '0};
   // Enable reduction for the B response.
   // Disable multicast for the B response.
   floo_router #(
-    .NumInput         ( NumInputs               ),
-    .NumOutput        ( NumOutputs              ),
-    .NumPhysChannels  ( 1                       ),
-    .NumVirtChannels  ( 1                       ),
-    .InFifoDepth      ( InFifoDepth             ),
-    .OutFifoDepth     ( OutFifoDepth            ),
-    .RouteAlgo        ( RouteAlgo               ),
-    .XYRouteOpt       ( XYRouteOpt              ),
-    .NumAddrRules     ( NumAddrRules            ),
-    .NoLoopback       ( 1'b1                    ),
-    .EnMultiCast      ( 1'b0                    ),
-    .EnReduction      ( EnMultiCast             ),
-    .id_t             ( id_t                    ),
-    .addr_rule_t      ( addr_rule_t             ),
-    .flit_t           ( floo_rsp_generic_flit_t ),
-    .payload_t        ( floo_rsp_payload_t      ),
-    .NarrowRspMask    ( floo_rsp_generic_flit_t'(NarrowBFlitMask.payload) ),
-    .WideRspMask      ( floo_rsp_generic_flit_t'(WideBFlitMask.payload)   )
+    .NumInput             ( NumInputs               ),
+    .NumOutput            ( NumOutputs              ),
+    .NumPhysChannels      ( 1                       ),
+    .NumVirtChannels      ( 1                       ),
+    .InFifoDepth          ( InFifoDepth             ),
+    .OutFifoDepth         ( OutFifoDepth            ),
+    .RouteAlgo            ( RouteAlgo               ),
+    .XYRouteOpt           ( XYRouteOpt              ),
+    .NumAddrRules         ( NumAddrRules            ),
+    .NoLoopback           ( 1'b1                    ),
+    .EnMultiCast          ( EnOffloadNarrowReduction | EnOffloadWideReduction | EnParallelReduction ),
+    .EnReduction          ( EnMultiCast             ),
+    .EnOffloadReduction   ( 1'b0                    ),
+    .EnParallelReduction  ( EnMultiCast             ),
+    .id_t                 ( id_t                    ),
+    .addr_rule_t          ( addr_rule_t             ),
+    .flit_t               ( floo_rsp_generic_flit_t ),
+    .payload_t            ( floo_rsp_payload_t      ),
+    .NarrowRspMask        ( floo_rsp_generic_flit_t'(NarrowBFlitMask.payload) ),
+    .WideRspMask          ( floo_rsp_generic_flit_t'(WideBFlitMask.payload)   )
   ) i_rsp_floo_router (
     .clk_i,
     .rst_ni,
     .test_enable_i,
-    .xy_id_i        ( id_i ),
+    .xy_id_i                  ( id_i          ),
     .id_route_map_i,
-    .valid_i        ( rsp_valid_in  ),
-    .ready_o        ( rsp_ready_out ),
-    .data_i         ( rsp_in        ),
-    .valid_o        ( rsp_valid_out ),
-    .ready_i        ( rsp_ready_in  ),
-    .data_o         ( rsp_out       )
+    .valid_i                  ( rsp_valid_in  ),
+    .ready_o                  ( rsp_ready_out ),
+    .data_i                   ( rsp_in        ),
+    .valid_o                  ( rsp_valid_out ),
+    .ready_i                  ( rsp_ready_in  ),
+    .data_o                   ( rsp_out       ),
+    .offload_req_op_o         (               ),
+    .offload_req_operand1_o   (               ),
+    .offload_req_operand2_o   (               ),
+    .offload_req_valid_o      (               ),
+    .offload_req_ready_i      ( '0            ),
+    .offload_resp_result_i    ( '0            ),
+    .offload_resp_valid_i     ( '0            ),
+    .offload_resp_ready_o     (               )
   );
 
 
   floo_router #(
-    .NumRoutes        ( NumRoutes                 ),
-    .NumPhysChannels  ( 1                         ),
-    .NumVirtChannels  ( 1                         ),
-    .InFifoDepth      ( InFifoDepth               ),
-    .OutFifoDepth     ( OutFifoDepth              ),
-    .RouteAlgo        ( RouteAlgo                 ),
-    .XYRouteOpt       ( XYRouteOpt                ),
-    .NumAddrRules     ( NumAddrRules              ),
-    .NoLoopback       ( 1'b1                      ),
-    .EnMultiCast      ( EnMultiCast               ),
-    .EnReduction      ( 1'b0                      ),
-    .id_t             ( id_t                      ),
-    .addr_rule_t      ( addr_rule_t               ),
-    .flit_t           ( floo_wide_generic_flit_t  )
+    .NumRoutes            ( NumRoutes                 ),
+    .NumPhysChannels      ( 1                         ),
+    .NumVirtChannels      ( 1                         ),
+    .InFifoDepth          ( InFifoDepth               ),
+    .OutFifoDepth         ( OutFifoDepth              ),
+    .RouteAlgo            ( RouteAlgo                 ),
+    .XYRouteOpt           ( XYRouteOpt                ),
+    .NumAddrRules         ( NumAddrRules              ),
+    .NoLoopback           ( 1'b1                      ),
+    .EnMultiCast          ( EnMultiCast               ),
+    .EnReduction          ( 1'b0                      ),
+    .EnOffloadReduction   ( EnOffloadWideReduction    ),
+    .EnParallelReduction  ( 1'b0                      ),
+    .id_t                 ( id_t                      ),
+    .addr_rule_t          ( addr_rule_t               ),
+    .flit_t               ( floo_wide_generic_flit_t  ),
+    .RdOperation_t        ( RdWideOperation_t         ),
+    .RdData_t             ( RdWideData_t              ),
+    .RdFifoFallThrough    ( RdFifoFallThrough         ),
+    .RdFifoDepth          ( RdFifoDepth               ),
+    .RdPipelineDepth      ( RdPipelineDepth           ),
+    .RdControllerComplex  ( RdControllerComplex       ),
+    .RdPartialBufferSize  ( RdPartialBufferSize       ),
+    .RdTagBits            ( RdTagBits                 ),
+    .RdSupportAxi         ( RdSupportAxi              )
   ) i_wide_req_floo_router (
     .clk_i,
     .rst_ni,
     .test_enable_i,
-    .xy_id_i        ( id_i ),
+    .xy_id_i                  ( id_i                          ),
     .id_route_map_i,
-    .valid_i        ( wide_valid_in   ),
-    .ready_o        ( wide_ready_out  ),
-    .data_i         ( wide_in         ),
-    .valid_o        ( wide_valid_out  ),
-    .ready_i        ( wide_ready_in   ),
-    .data_o         ( wide_out        )
+    .valid_i                  ( wide_valid_in                 ),
+    .ready_o                  ( wide_ready_out                ),
+    .data_i                   ( wide_in                       ),
+    .valid_o                  ( wide_valid_out                ),
+    .ready_i                  ( wide_ready_in                 ),
+    .data_o                   ( wide_out                      ),
+    .offload_req_op_o         ( offload_wide_req_op_o         ),
+    .offload_req_operand1_o   ( offload_wide_req_operand1_o   ),
+    .offload_req_operand2_o   ( offload_wide_req_operand2_o   ),
+    .offload_req_valid_o      ( offload_wide_req_valid_o      ),
+    .offload_req_ready_i      ( offload_wide_req_ready_i      ),
+    .offload_resp_result_i    ( offload_wide_resp_result_i    ),
+    .offload_resp_valid_i     ( offload_wide_resp_valid_i     ),
+    .offload_resp_ready_o     ( offload_wide_resp_ready_o     )
   );
 
 endmodule
