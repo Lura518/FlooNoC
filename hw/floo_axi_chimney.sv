@@ -725,7 +725,7 @@ module floo_axi_chimney #(
       if(aw_out_hdr_out.hdr.commtype == Multicast) begin
         floo_axi_b.hdr.commtype = ParallelReduction;
         floo_axi_b.hdr.reduction_op = CollectB;
-      end else if(aw_out_hdr_out.hdr.commtype == OffloadReduction) begin
+      end else if((aw_out_hdr_out.hdr.commtype == OffloadReduction) || (aw_out_hdr_out.hdr.commtype == ParallelReduction)) begin
         floo_axi_b.hdr.commtype = Multicast;
       end else begin
         floo_axi_b.hdr.commtype = Unicast;
