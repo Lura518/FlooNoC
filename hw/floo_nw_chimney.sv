@@ -376,7 +376,7 @@ module floo_nw_chimney #(
       assign axi_narrow_rsp_out.ar_ready = axi_narrow_ar_queue_ready_in;
       assign axi_narrow_mask_queue = axi_narrow_req_in_mask;
       assign axi_narrow_red_comm_type_queue = axi_narrow_req_in_red_comm_type;
-      assign axi_narrow_red_op_queue = axi_narrow_req_in_red_op.;
+      assign axi_narrow_red_op_queue = axi_narrow_req_in_red_op;
     end
 
   end else begin : gen_narrow_err_slv_port
@@ -509,7 +509,7 @@ module floo_nw_chimney #(
       assign axi_wide_rsp_out.ar_ready = axi_wide_ar_queue_ready_in;
       assign axi_wide_mask_queue = axi_wide_req_in_mask;
       assign axi_wide_red_comm_type_queue = axi_wide_req_in_red_comm_type;
-      assign axi_wide_red_op_queue = axi_wide_req_in_red_op.;
+      assign axi_wide_red_op_queue = axi_wide_req_in_red_op;
     end
 
   end else begin : gen_wide_err_slv_port

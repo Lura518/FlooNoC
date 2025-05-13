@@ -106,7 +106,7 @@ module floo_nw_router #(
   /// Narrow IF from external FPU
   input RdNarrowData_t                  offload_narrow_resp_result_i,
   input logic                           offload_narrow_resp_valid_i,
-  output logic                          offload_narrow_resp_ready_o,
+  output logic                          offload_narrow_resp_ready_o
 );
 
   typedef logic [AxiCfgN.AddrWidth-1:0] axi_addr_t;
@@ -183,6 +183,9 @@ module floo_nw_router #(
     .id_t                 ( id_t                      ),
     .addr_rule_t          ( addr_rule_t               ),
     .flit_t               ( floo_req_generic_flit_t   ),
+    .payload_t            ( floo_req_payload_t        ),
+    .NarrowRspMask        ( NarrowBFlitMask.payload   ),
+    .WideRspMask          ( WideBFlitMask.payload     ),
     .RdOperation_t        ( RdNarrowOperation_t       ),
     .RdData_t             ( RdNarrowData_t            ),
     .RdFifoFallThrough    ( RdFifoFallThrough         ),
