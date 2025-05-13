@@ -5,6 +5,9 @@
 // Author: Chen Wu <chenwu@student.ethz.ch>
 //         Raphael Roth <raroth@student.ethz.ch>
 
+`include "axi/typedef.svh"
+`include "floo_noc/typedef.svh"
+
 module floo_reduction_arbiter import floo_pkg::*;
 #(
   /// Number of input ports
@@ -35,6 +38,18 @@ module floo_reduction_arbiter import floo_pkg::*;
   input  logic                   ready_i,
   output flit_t                  data_o
 );
+
+  // Generate the AXI specific types
+  typedef logic [AxiCfg.AddrWidth-1:0] axi_addr_t;
+  typedef logic [AxiCfg.InIdWidth-1:0] axi_in_id_t;
+  typedef logic [AxiCfg.OutIdWidth-1:0] axi_out_id_t;
+  typedef logic [AxiCfg.UserWidth-1:0] axi_user_t;
+  typedef logic [AxiCfg.DataWidth-1:0] axi_data_t;
+  typedef logic [AxiCfg.DataWidth/8-1:0] axi_strb_t;
+
+  `AXI_TYPEDEF_ALL_CT(axi, axi_req_t, axi_rsp_t, axi_addr_t, axi_in_id_t, axi_data_t, axi_strb_t, axi_user_t)
+  `AXI_TYPEDEF_AW_CHAN_T(axi_out_aw_chan_t, axi_addr_t, axi_out_id_t, axi_user_t)
+  `FLOO_TYPEDEF_AXI_CHAN_ALL(axi, req, rsp, axi, AxiCfg, hdr_t)
 
   // We calculte the different reduction in parallel and select the result at the output
   flit_t data_forward_flit;   
@@ -118,14 +133,17 @@ module floo_reduction_arbiter import floo_pkg::*;
     // We check every input port from which we expect a response
     for (int i = 0; i < NumRoutes; i++) begin
       if(in_route_mask[i]) begin
-        // For every bit that is set in the mask, we and connect the last bit in the payload???
-        // TODO raroth: How da fuck sould i solve this?
-        lsb = lsb & data[i].payload[0];
+        // Extract the last bit from the data
+        if(RdSupportAxi) begin
+          lsb = lsb & extractAXIWlsb(data_i[i]);
+        end
       end
     end
 
     // Assign the bit again
-    data_LSBAnd.payload[0] = lsb;
+    if(RdSupportAxi) begin
+      data_LSBAnd = insertAXIWlsb(data_LSBAnd, lsb);
+    end
   end
 
   // If we support more than the inital parallel reduction
@@ -146,5 +164,25 @@ module floo_reduction_arbiter import floo_pkg::*;
 
   // Connect the ready signal
   assign ready_o = (ready_i & valid_o)? valid_i & in_route_mask : '0;
+
+  // AXI Specific function!
+  // Insert data into AXI specific W frame! 
+  function automatic flit_t insertAXIWlsb(flit_t metadata, logic data);
+      floo_axi_w_flit_t w_flit;
+      // Parse the entire flit
+      w_flit = floo_axi_w_flit_t'(metadata);
+      // Copy the new data
+      w_flit.payload.data[0] = data;
+      return flit_t'(w_flit);
+  endfunction
+
+  // Extract data from AXI specific W frame! 
+  function automatic logic extractAXIWlsb(flit_t metadata);
+      floo_axi_w_flit_t w_flit;
+      // Parse the entire flit
+      w_flit = floo_axi_w_flit_t'(metadata);
+      // Return the W data
+      return w_flit.payload.data[0];
+  endfunction
 
 endmodule

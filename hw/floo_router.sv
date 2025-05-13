@@ -487,5 +487,7 @@ module floo_router
   `ASSERT_INIT(NoSymConfig, !(EnOffloadReduction && (NumInput != NumOutput)))
   // When en the parallel reduction we also need to enable the "normal" reduction
   `ASSERT_INIT(SystemConfig, !EnParallelReduction || EnReduction)
+  // Currently the AXI support must be enabled
+  `ASSERT_INIT(Support_AXI, RdSupportAxi)
 
 endmodule

@@ -28,6 +28,8 @@
 
 `include "common_cells/registers.svh"
 `include "common_cells/assertions.svh"
+`include "axi/typedef.svh"
+`include "floo_noc/typedef.svh"
 
 module floo_offload_reduction_controller #(
     /// Number of Routes (Currently support only symmetric configurations)
@@ -121,6 +123,17 @@ localparam bit [NumRoutes-1:0] ONES = 1;
 
 /* All Typedef Vars */
 
+// Generate the floo types
+typedef logic [AxiCfg.AddrWidth-1:0] axi_addr_t;
+typedef logic [AxiCfg.InIdWidth-1:0] axi_in_id_t;
+typedef logic [AxiCfg.OutIdWidth-1:0] axi_out_id_t;
+typedef logic [AxiCfg.UserWidth-1:0] axi_user_t;
+typedef logic [AxiCfg.DataWidth-1:0] axi_data_t;
+typedef logic [AxiCfg.DataWidth/8-1:0] axi_strb_t;
+
+`AXI_TYPEDEF_ALL_CT(axi, axi_req_t, axi_rsp_t, axi_addr_t, axi_in_id_t, axi_data_t, axi_strb_t, axi_user_t)
+`AXI_TYPEDEF_AW_CHAN_T(axi_out_aw_chan_t, axi_addr_t, axi_out_id_t, axi_user_t)
+`FLOO_TYPEDEF_AXI_CHAN_ALL(axi, req, rsp, axi, AxiCfg, hdr_t)
 
 
 // Typedef to encompass an ongoing reduction in the buffer
@@ -673,20 +686,23 @@ end else begin
 end
 
 // AXI Specific function!
-// Unfortunatly i didn't find a better way to do this protocal independent!
-
 // Insert data into AXI specific W frame! 
 function automatic flit_t insertAXIWdata(flit_t metadata, RdData_t data);
-    flit_t retVal = metadata;
-    // TODO: Parse the AXI protocol stuff here!
-    retVal.payload[$bits(retVal.payload)-1:$bits(retVal.payload)-$bits(RdData_t)] = data;
-    return retVal;
+    floo_axi_w_flit_t w_flit;
+    // Parse the entire flit
+    w_flit = floo_axi_w_flit_t'(metadata);
+    // Copy the new data
+    w_flit.payload.data = data;
+    return flit_t'(w_flit);
 endfunction
 
 // Extract data from AXI specific W frame! 
 function automatic RdData_t extractAXIWdata(flit_t metadata);
-    // TODO: Parse the AXI protocol stuff here!
-    return metadata.payload[$bits(metadata.payload)-1:$bits(metadata.payload)-$bits(RdData_t)];
+    floo_axi_w_flit_t w_flit;
+    // Parse the entire flit
+    w_flit = floo_axi_w_flit_t'(metadata);
+    // Return the W data
+    return w_flit.payload.data;
 endfunction
 
 // Store the data in the buffer
