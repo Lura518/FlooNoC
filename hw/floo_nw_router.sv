@@ -183,6 +183,7 @@ module floo_nw_router #(
     .id_t                 ( id_t                      ),
     .addr_rule_t          ( addr_rule_t               ),
     .flit_t               ( floo_req_generic_flit_t   ),
+    .hdr_t                ( hdr_t                     ),
     .payload_t            ( floo_req_payload_t        ),
     .NarrowRspMask        ( NarrowBFlitMask.payload   ),
     .WideRspMask          ( WideBFlitMask.payload     ),
@@ -194,7 +195,9 @@ module floo_nw_router #(
     .RdControllerComplex  ( RdControllerComplex       ),
     .RdPartialBufferSize  ( RdPartialBufferSize       ),
     .RdTagBits            ( RdTagBits                 ),
-    .RdSupportAxi         ( RdSupportAxi              )
+    .RdSupportAxi         ( RdSupportAxi              ),
+    .AxiCfgOffload        ( AxiCfgN                   ),
+    .AxiCfgParallel       ( AxiCfgN                   )
   ) i_req_floo_router (
     .clk_i,
     .rst_ni,
@@ -253,9 +256,13 @@ localparam axi_narrow_b_chan_t NarrowBMask = '{resp: 2'b11, default: '0};
     .id_t                 ( id_t                    ),
     .addr_rule_t          ( addr_rule_t             ),
     .flit_t               ( floo_rsp_generic_flit_t ),
+    .hdr_t                ( hdr_t                   ),
     .payload_t            ( floo_rsp_payload_t      ),
     .NarrowRspMask        ( floo_rsp_generic_flit_t'(NarrowBFlitMask.payload) ),
-    .WideRspMask          ( floo_rsp_generic_flit_t'(WideBFlitMask.payload)   )
+    .WideRspMask          ( floo_rsp_generic_flit_t'(WideBFlitMask.payload)   ),
+    .RdSupportAxi         ( RdSupportAxi            ),
+    .AxiCfgOffload        ( '0                      ),
+    .AxiCfgParallel       ( AxiCfgN                 )
   ) i_rsp_floo_router (
     .clk_i,
     .rst_ni,
@@ -296,6 +303,7 @@ localparam axi_narrow_b_chan_t NarrowBMask = '{resp: 2'b11, default: '0};
     .id_t                 ( id_t                      ),
     .addr_rule_t          ( addr_rule_t               ),
     .flit_t               ( floo_wide_generic_flit_t  ),
+    .hdr_t                ( hdr_t                     ),
     .RdOperation_t        ( RdWideOperation_t         ),
     .RdData_t             ( RdWideData_t              ),
     .RdFifoFallThrough    ( RdFifoFallThrough         ),
@@ -304,7 +312,9 @@ localparam axi_narrow_b_chan_t NarrowBMask = '{resp: 2'b11, default: '0};
     .RdControllerComplex  ( RdControllerComplex       ),
     .RdPartialBufferSize  ( RdPartialBufferSize       ),
     .RdTagBits            ( RdTagBits                 ),
-    .RdSupportAxi         ( RdSupportAxi              )
+    .RdSupportAxi         ( RdSupportAxi              ),
+    .AxiCfgOffload        ( AxiCfgW                   ),
+    .AxiCfgParallel       ( '0                        )
   ) i_wide_req_floo_router (
     .clk_i,
     .rst_ni,

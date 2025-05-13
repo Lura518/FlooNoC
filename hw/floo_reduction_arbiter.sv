@@ -12,13 +12,17 @@ module floo_reduction_arbiter import floo_pkg::*;
   /// Enable Parallel Reduction
   parameter bit          EnParallelReduction  = 1'b0,
   /// Type definitions
-  parameter type         flit_t     = logic,
-  parameter type         payload_t  = logic,
+  parameter type         flit_t               = logic,
+  parameter type         hdr_t                = logic,
+  parameter type         payload_t            = logic,
   // Masks used to select which bits of the payload are part of the response,
   // allowing extraction of relevant bits and detection of any participant errors.
-  parameter payload_t    NarrowRspMask = '0,
-  parameter payload_t    WideRspMask = '0,
-  parameter type         id_t       = logic
+  parameter payload_t    NarrowRspMask        = '0,
+  parameter payload_t    WideRspMask          = '0,
+  parameter type         id_t                 = logic
+  /// AXI dependent parameter
+  parameter bit          RdSupportAxi         = 1'b1,
+  parameter axi_cfg_t    AxiCfg               = '0
 ) (
   /// Current XY-coordinate of the router
   input  id_t                    xy_id_i,
@@ -33,7 +37,7 @@ module floo_reduction_arbiter import floo_pkg::*;
 );
 
   // We calculte the different reduction in parallel and select the result at the output
-  flit_t data_AW_flit;   
+  flit_t data_forward_flit;   
   flit_t data_collectB;
   flit_t data_LSBAnd;
 
@@ -101,9 +105,9 @@ module floo_reduction_arbiter import floo_pkg::*;
     end
   end
 
-  // Forward AW flits directly - Just choose to forward the selected one
-  always_comb begin : gen_AW_forward
-    data_AW_flit = data_i[input_sel];
+  // Forward flits directly - Just choose to forward the selected one
+  always_comb begin : gen_forward
+    data_forward_flit = data_i[input_sel];
   end
 
   // And all the LSB
@@ -116,26 +120,25 @@ module floo_reduction_arbiter import floo_pkg::*;
       if(in_route_mask[i]) begin
         // For every bit that is set in the mask, we and connect the last bit in the payload???
         // TODO raroth: How da fuck sould i solve this?
-        lsb = lsb & data[i].payload[???];
+        lsb = lsb & data[i].payload[0];
       end
     end
 
     // Assign the bit again
-    data_LSBAnd.payload[???] = lsb;
+    data_LSBAnd.payload[0] = lsb;
   end
 
   // If we support more than the inital parallel reduction
   if(EnParallelReduction) begin
-    if((data_i[input_sel].hdr.axi_ch == AxiAw) || (data_i[input_sel].hdr.axi_ch == NarrowAw) || (data_i[input_sel].hdr.axi_ch == WideAw)) begin
+    if(data_i[input_sel].hdr.reduction_op == SelectAW) begin
       // AW flit dedected
-      assign data_o = data_AW_flit;
-    end else begin
-      // Data flit dedected
-      if(data_i[input_sel].hdr.reduction_op == CollectB) begin
-        assign data_o = data_collectB;
-      end else if(data_i[input_sel].hdr.reduction_op == LSBAnd) begin
-        assign data_o = data_LSBAnd;
-      end
+      assign data_o = data_forward_flit;
+    end else if(data_i[input_sel].hdr.reduction_op == CollectB) begin
+      // Collect B flit dedected
+      assign data_o = data_collectB;
+    end else if(data_i[input_sel].hdr.reduction_op == LSBAnd) begin
+      // LSB And flit dedected
+      assign data_o = data_LSBAnd;
     end
   end else begin
     assign data_o = data_collectB;

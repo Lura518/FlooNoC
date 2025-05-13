@@ -97,7 +97,7 @@ package floo_pkg;
 
   /// Different offloadable reduction
   typedef enum logic [3:0] { 
-    G_Comb    = 4'b0000, // Combine the different request without OP (AW channel) (TODO Replace code that is AW dependet!?!)
+    R_Select  = 4'b0000, // Select the first incoming flit
     F_Add     = 4'b0100, // FP Addition
     F_Mul     = 4'b0101, // FP Multiplication
     F_Min     = 4'b0110, // FP Min
@@ -112,7 +112,7 @@ package floo_pkg;
 
   /// Different instantanous reduction
   typedef enum logic [3:0] {
-    Combine   = 4'b0000,  // Combine the different request without OP (AW channel)
+    SelectAW  = 4'b0000,  // Select the first incoming flit
     CollectB  = 4'b0001,  // Collect the B responses from an AXI transmission
     LSBAnd    = 4'b0010   // And Connect all the LSB from the 
   } reduction_parallel_op_e;

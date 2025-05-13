@@ -67,7 +67,10 @@ module floo_router
   parameter int unsigned RdControllerComplex  = 2,
   parameter int unsigned RdPartialBufferSize  = 2,
   parameter int unsigned RdTagBits            = 4,
-  parameter bit          RdSupportAxi         = 1'b1
+  /// AXI dependent parameter
+  parameter bit          RdSupportAxi         = 1'b1,
+  parameter axi_cfg_t    AxiCfgOffload        = '0,
+  parameter axi_cfg_t    AxiCfgParallel       = '0
 ) (
   input  logic                                       clk_i,
   input  logic                                       rst_ni,
@@ -244,7 +247,8 @@ module floo_router
       .RdPartialBufferSize        (RdPartialBufferSize),
       .RdTagBits                  (RdTagBits),
       .RdContollerComplexity      (RdControllerComplex),
-      .RdSupportAxi               (RdSupportAxi)
+      .RdSupportAxi               (RdSupportAxi),
+      .AxiCfg                     (AxiCfgOffload)
     ) i_offload_reduction_logic (
       .clk_i                      (clk_i),
       .rst_ni                     (rst_ni),
@@ -370,10 +374,13 @@ module floo_router
           .NumRoutes            ( localNumInputs      ),
           .EnParallelReduction  ( EnParallelReduction ),
           .flit_t               ( flit_t              ),
+          .hdr_t                ( hdr_t               ),
           .payload_t            ( payload_t           ),
           .NarrowRspMask        ( NarrowRspMask       ),
           .WideRspMask          ( WideRspMask         ),
-          .id_t                 ( id_t                )
+          .id_t                 ( id_t                ),
+          .RdSupportAxi         ( RdSupportAxi        ),
+          .AxiCfg               ( AxiCfgParallel      )
         ) i_output_arbiter (
           .clk_i,
           .rst_ni,

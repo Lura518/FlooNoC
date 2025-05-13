@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: SHL-0.51
 //
 // Author: Chen Wu <chenwu@student.ethz.ch>
+//         Raphael Roth <raroth@student.ethz.ch>
 
 `include "common_cells/assertions.svh"
 
@@ -13,11 +14,15 @@ module floo_output_arbiter import floo_pkg::*;
   /// Enable parallel reduction feature
   parameter bit          EnParallelReduction  = 1'b0,
   /// Type definitions
-  parameter type         flit_t     = logic,
-  parameter type         payload_t  = logic,
-  parameter payload_t    NarrowRspMask = '0,
-  parameter payload_t    WideRspMask = '0,
-  parameter type         id_t       = logic
+  parameter type         flit_t               = logic,
+  parameter type         hdr_t                = logic,
+  parameter type         payload_t            = logic,
+  parameter payload_t    NarrowRspMask        = '0,
+  parameter payload_t    WideRspMask          = '0,
+  parameter type         id_t                 = logic,
+  /// AXI dependent parameter
+  parameter bit          RdSupportAxi         = 1'b1,
+  parameter axi_cfg_t    AxiCfg               = '0
 ) (
   input  logic                   clk_i,
   input  logic                   rst_ni,
@@ -68,10 +73,13 @@ module floo_output_arbiter import floo_pkg::*;
     .NumRoutes            ( NumRoutes           ),
     .EnParallelReduction  ( EnParallelReduction ),
     .flit_t               ( flit_t              ),
+    .hdr_t                ( hdr_t               ),
     .payload_t            ( payload_t           ),
     .id_t                 ( id_t                ),
     .NarrowRspMask        ( NarrowRspMask       ),
-    .WideRspMask          ( WideRspMask         )
+    .WideRspMask          ( WideRspMask         ),
+    .RdSupportAxi         ( RdSupportAxi        ),
+    .AxiCfg               ( AxiCfg              )
   ) i_reduction_arbiter (
     .xy_id_i,
     .data_i,

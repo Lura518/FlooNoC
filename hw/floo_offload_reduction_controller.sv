@@ -44,6 +44,7 @@ module floo_offload_reduction_controller #(
     parameter type          tag_t                   = logic,
     parameter type          mask_t                  = logic,
     parameter type          flit_t                  = logic,
+    parameter type          hdr_t                   = logic,
     parameter type          data_tag_t              = logic,
     parameter type          data_mask_tag_t         = logic,
     parameter type          flit_mask_tag_t         = logic,
@@ -56,6 +57,8 @@ module floo_offload_reduction_controller #(
     parameter bit           STALLING                = 1'b0,
     /// Defines if the underlying protocol is AXI
     parameter bit           RdSupportAxi            = 1'b1,
+    /// Axi Configuration
+    parameter floo_pkg::axi_cfg_t AxiCfg            = '0,
     /// Define if we support a bypass or not (for AXI AW header)
     parameter bit           RdEnableBypass          = 1'b1
 ) (
@@ -117,6 +120,8 @@ localparam int unsigned RdBufferSize = (GENERIC) ? (RdPipelineDepth+RdPartialBuf
 localparam bit [NumRoutes-1:0] ONES = 1;
 
 /* All Typedef Vars */
+
+
 
 // Typedef to encompass an ongoing reduction in the buffer
 typedef struct packed {
@@ -310,13 +315,9 @@ if(GENERIC || STALLING) begin : gen_controller_stalling_generic
                     buffer_d[i].tag = new_incoming_flit.tag;
                     buffer_d[i].f_valid = 1'b1;
                     // Check if we have to directly forward the flit
-                    if(RdSupportAxi) begin
-                        buffer_d[i].f_forwarding = extractAXIChannel(new_incoming_flit.flit.hdr.axi_ch);
-                        if((buffer_d[i].f_forwarding == 1'b1) && (RdEnableBypass == 1'b0)) begin
-                            $error($time, "Somehow an AW flit got to an reduction which does not support bypass - Why?");
-                        end
-                    end else begin
-                        buffer_d[i].f_forwarding = 1'b0;
+                    buffer_d[i].f_forwarding = (new_incoming_flit.flit.hdr.reduction_op == floo_pkg::R_Select) ? 1'b1 : 1'b0;
+                    if((buffer_d[i].f_forwarding == 1'b1) && (RdEnableBypass == 1'b0)) begin
+                        $error($time, "Somehow an AW flit got to an reduction which does not support bypass - Why?");
                     end
                 end
             end
@@ -447,7 +448,9 @@ if(GENERIC || STALLING) begin : gen_controller_stalling_generic
                     // data: extract the data from the AXI W channel in the selected input
                     // mask: shift the 00001 according to the selected input
                     // tag: just get it from the locked in version
-                    operand_data_o[i] = {extractAXIWdata(stalling_flit[selected_input_d[i]].flit), ONES << selected_input_d[i], selected_tag_d};
+                    if(RdSupportAxi) begin
+                        operand_data_o[i] = {extractAXIWdata(stalling_flit[selected_input_d[i]].flit), ONES << selected_input_d[i], selected_tag_d};
+                    end
                     // Set the valid bit
                     operand_valid_o[i] = 1'b1;
                     // Forward the ready bit without influencing already existing set bits on other inputs
@@ -533,7 +536,7 @@ if(SIMPLE) begin : gen_simple_controller
 
         // Set all signals
         if(locked_d == 1'b1) begin
-            if(extractAXIChannel(stalling_flit[selected_input_d[0]].flit.hdr.axi_ch) == 1'b1) begin
+            if(stalling_flit[selected_input_d[0]].flit.hdr.reduction_op == floo_pkg::R_Select) begin
                 // We need to wait until no W reduction is ongoing otherwise a reordering could occure (b.c. AW bypasses the reduction)
                 if(simple_reduction_ongoing == 1'b1) begin
                     // AW flit found - direct forward to the output
@@ -548,7 +551,9 @@ if(SIMPLE) begin : gen_simple_controller
                 // W flit found
                 for(int i = 0; i < 2; i++) begin
                     // Set the data
-                    operand_data_o[i].data = extractAXIWdata(stalling_flit[selected_input_d[i]].flit);
+                    if(RdSupportAxi) begin
+                        operand_data_o[i].data = extractAXIWdata(stalling_flit[selected_input_d[i]].flit);
+                    end
 
                     // Forward the handshaking
                     stalling_ready = stalling_ready | ((ONES & {(NumRoutes){operand_ready_i[i]}}) << selected_input_d[i]);
@@ -673,19 +678,15 @@ end
 // Insert data into AXI specific W frame! 
 function automatic flit_t insertAXIWdata(flit_t metadata, RdData_t data);
     flit_t retVal = metadata;
+    // TODO: Parse the AXI protocol stuff here!
     retVal.payload[$bits(retVal.payload)-1:$bits(retVal.payload)-$bits(RdData_t)] = data;
     return retVal;
 endfunction
 
 // Extract data from AXI specific W frame! 
 function automatic RdData_t extractAXIWdata(flit_t metadata);
+    // TODO: Parse the AXI protocol stuff here!
     return metadata.payload[$bits(metadata.payload)-1:$bits(metadata.payload)-$bits(RdData_t)];
-endfunction
-
-// Extract the AXI Channel from the header
-function automatic logic extractAXIChannel(floo_pkg::axi_ch_e channel);
-    logic retVal = (channel == floo_pkg::AxiAw) ? 1'b1 : 1'b0;
-    return retVal;
 endfunction
 
 // Store the data in the buffer

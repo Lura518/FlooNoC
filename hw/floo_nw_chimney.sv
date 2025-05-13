@@ -1065,7 +1065,11 @@ module floo_nw_chimney #(
     // Assign the commtype and operation to the narrow AW flit
     if(EnCollectiveOperation) begin
       floo_narrow_aw.hdr.commtype = red_coll_type[NarrowAw];
-      floo_narrow_aw.hdr.reduction_op = red_coll_operation[NarrowAw];
+      if(red_coll_type[NarrowAw] == OffloadReduction) begin
+        floo_narrow_aw.hdr.reduction_op = R_Select;
+      end else if(red_coll_type[NarrowAw] == ParallelReduction) begin
+        floo_narrow_aw.hdr.reduction_op = SelectAW;
+      end
     end else begin
       floo_narrow_aw.hdr.commtype = (mcast_mask[NarrowAw] != '0)? Multicast : Unicast;
     end
@@ -1161,8 +1165,11 @@ module floo_nw_chimney #(
     // Assign the commtype and operation to the wide AW flit
     if(EnCollectiveOperation) begin
       floo_wide_aw.hdr.commtype = red_coll_type[WideAw];
-      floo_wide_aw.hdr.reduction_op = red_coll_operation[WideAw];
-    end else begin
+      if(red_coll_type[WideAw] == OffloadReduction) begin
+        floo_wide_aw.hdr.reduction_op = R_Select;
+      end else if(red_coll_type[WideAw] == ParallelReduction) begin
+        floo_wide_aw.hdr.reduction_op = SelectAW;
+      end    end else begin
       floo_wide_aw.hdr.commtype = (mcast_mask[WideAw] != '0)? Multicast : Unicast;
     end
   end

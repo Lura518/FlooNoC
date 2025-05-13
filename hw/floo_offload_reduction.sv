@@ -61,6 +61,8 @@ module floo_offload_reduction import floo_pkg::*; #(
   parameter int unsigned RdContollerComplexity  = 2,
   /// Defines if the underlying protocol is AXI
   parameter bit          RdSupportAxi           = 1'b1,
+  /// Axi Configuration
+  parameter axi_cfg_t    AxiCfg                 = '0,
   /// Define if we support a bypass or not (for AXI AW header)
   parameter bit          RdEnableBypass         = 1'b1
 ) (
@@ -251,6 +253,7 @@ floo_offload_reduction_controller #(
   .tag_t                        (tag_t),
   .mask_t                       (mask_t),
   .flit_t                       (flit_t),
+  .hdr_t                        (hdr_t),
   .data_tag_t                   (red_data_tag_t),
   .data_mask_tag_t              (red_data_mask_tag_t),
   .flit_mask_tag_t              (flit_mask_tag_t),
@@ -260,6 +263,7 @@ floo_offload_reduction_controller #(
   .SIMPLE                       (SIMPLE),
   .STALLING                     (STALLING),
   .RdSupportAxi                 (RdSupportAxi),
+  .AxiCfg                       (AxiCfg),
   .RdEnableBypass               (RdEnableBypass)
 ) i_reduction_controller (
   .clk_i                        (clk_i),

@@ -667,7 +667,11 @@ module floo_axi_chimney #(
     // Assign the commtype and operation to the AW flit
     if(EnCollectiveOperation) begin
       floo_axi_aw.hdr.commtype = red_coll_type[AxiAw];
-      floo_axi_aw.hdr.reduction_op = red_coll_operation[AxiAw];
+      if(red_coll_type[AxiAw] == OffloadReduction) begin
+        floo_axi_aw.hdr.reduction_op = R_Select;
+      end else if(red_coll_type[AxiAw] == ParallelReduction) begin
+        floo_axi_aw.hdr.reduction_op = SelectAW;
+      end
     end else begin
       floo_axi_aw.hdr.commtype = (mcast_mask[AxiAw] != '0)? Multicast : Unicast;
     end
