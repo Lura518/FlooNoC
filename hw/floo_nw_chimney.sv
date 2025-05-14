@@ -31,7 +31,9 @@ module floo_nw_chimney #(
   /// and one ID is reserved for non-atomic transactions
   parameter int unsigned MaxAtomicTxns           = 1,
   /// Enable collective operation (subfiel type and operation)
-  parameter bit EnCollectiveOperation             = 1'b0,
+  parameter bit EnWideCollectiveOperation               = 1'b0,
+    /// Enable collective operation (subfiel type and operation)
+  parameter bit EnNarrowCollectiveOperation             = 1'b0,
   /// Node ID type for routing
   parameter type id_t                                   = logic,
   /// RoB index type for reordering.
@@ -279,7 +281,7 @@ module floo_nw_chimney #(
     end
 
     // Extract the reduction information if from the narrow AXI user bits
-    if(EnCollectiveOperation) begin : gen_narrow_collectiv_operation
+    if(EnNarrowCollectiveOperation) begin : gen_narrow_collectiv_operation
       user_narrow_struct_t user;
       assign user = axi_narrow_in_req_i.aw.user;
       assign axi_narrow_req_in_red_comm_type = user.coll_type;
@@ -337,7 +339,7 @@ module floo_nw_chimney #(
   floo_pkg::reduction_op_e axi_wide_red_op_queue;
 
       // Cut all signals used for the collectiv operations (type of operation and operation)
-      if(EnCollectiveOperation) begin : gen_collectiv_operation_cuts
+      if(EnNarrowCollectiveOperation) begin : gen_collectiv_operation_cuts
         spill_register #(
           .T (floo_pkg::collect_comm_e)
         ) i_coll_type_queue (
@@ -415,7 +417,7 @@ module floo_nw_chimney #(
     end
 
     // Extract the reduction information if from the narrow AXI user bits
-    if(EnCollectiveOperation) begin : gen_narrow_collectiv_operation
+    if(EnWideCollectiveOperation) begin : gen_narrow_collectiv_operation
       user_wide_struct_t user;
       assign user = axi_wide_in_req_i.aw.user;
       assign axi_wide_req_in_red_comm_type = user.coll_type;
@@ -470,7 +472,7 @@ module floo_nw_chimney #(
       end
 
       // Cut all signals used for the collectiv operations (type of operation and operation)
-      if(EnCollectiveOperation) begin : gen_collectiv_operation_cuts
+      if(EnWideCollectiveOperation) begin : gen_collectiv_operation_cuts
         spill_register #(
           .T (floo_pkg::collect_comm_e)
         ) i_coll_type_queue (
@@ -1009,7 +1011,7 @@ module floo_nw_chimney #(
   // Currently any reduction have to either be on the AW/W channel
   // If the chimney receives an Multicast / Reduction it will automatically update the resonse
   // to the appropriate type (Multicast => Paralle Reduction with CollectB / Reduction => Multicast B Response)
-  if(EnCollectiveOperation) begin : gen_cache_collectiv_operation_data
+  if(EnNarrowCollectiveOperation) begin : gen_cache_collectiv_operation_data
     // Assign all collective type
     assign red_coll_type[NarrowAw] = axi_narrow_red_comm_type_queue;
     assign red_coll_type[NarrowAr] = '0;
@@ -1063,7 +1065,7 @@ module floo_nw_chimney #(
     floo_narrow_aw.hdr.atop     = axi_narrow_aw_queue.atop != axi_pkg::ATOP_NONE;
     floo_narrow_aw.payload      = axi_narrow_aw_queue;
     // Assign the commtype and operation to the narrow AW flit
-    if(EnCollectiveOperation) begin
+    if(EnNarrowCollectiveOperation) begin
       floo_narrow_aw.hdr.commtype = red_coll_type[NarrowAw];
       if(red_coll_type[NarrowAw] == OffloadReduction) begin
         floo_narrow_aw.hdr.reduction_op = R_Select;
@@ -1086,7 +1088,7 @@ module floo_nw_chimney #(
     floo_narrow_w.hdr.axi_ch    = NarrowW;
     floo_narrow_w.payload       = axi_narrow_req_in.w;
     // Assign the commtype and operation to the narrow W flit
-    if(EnCollectiveOperation) begin
+    if(EnNarrowCollectiveOperation) begin
       floo_narrow_w.hdr.commtype = red_coll_type[NarrowW];
       floo_narrow_w.hdr.reduction_op = red_coll_operation[NarrowW];
     end else begin
@@ -1123,7 +1125,7 @@ module floo_nw_chimney #(
     // The AXI member on the chimney should not be aware of a reduction / multicast!
     // Multicast --> Collect the B responses in a parallel reduction
     // Reduction --> Multicast the B response to all members
-    if(EnCollectiveOperation == 1'b1) begin
+    if(EnNarrowCollectiveOperation) begin
       if(narrow_aw_buf_hdr_out.hdr.commtype == Multicast) begin
         floo_narrow_b.hdr.commtype = ParallelReduction;
         floo_narrow_b.hdr.reduction_op = CollectB;
@@ -1163,7 +1165,7 @@ module floo_nw_chimney #(
     floo_wide_aw.hdr.axi_ch   = WideAw;
     floo_wide_aw.payload      = axi_wide_aw_queue;
     // Assign the commtype and operation to the wide AW flit
-    if(EnCollectiveOperation) begin
+    if(EnWideCollectiveOperation) begin
       floo_wide_aw.hdr.commtype = red_coll_type[WideAw];
       if(red_coll_type[WideAw] == OffloadReduction) begin
         floo_wide_aw.hdr.reduction_op = R_Select;
@@ -1185,7 +1187,7 @@ module floo_nw_chimney #(
     floo_wide_w.hdr.axi_ch  = WideW;
     floo_wide_w.payload     = axi_wide_req_in.w;
     // Assign the commtype and operation to the wide W flit
-    if(EnCollectiveOperation) begin
+    if(EnWideCollectiveOperation) begin
       floo_wide_w.hdr.commtype = red_coll_type[WideW];
       floo_wide_w.hdr.reduction_op = red_coll_operation[WideW];
     end else begin
@@ -1222,7 +1224,7 @@ module floo_nw_chimney #(
     // The AXI member on the chimney should not be aware of a reduction / multicast!
     // Multicast --> Collect the B responses in a parallel reduction
     // Reduction --> Multicast the B response to all members
-    if(EnCollectiveOperation == 1'b1) begin
+    if(EnWideCollectiveOperation == 1'b1) begin
       if(wide_aw_buf_hdr_out.hdr.commtype == Multicast) begin
         floo_wide_b.hdr.commtype = ParallelReduction;
         floo_wide_b.hdr.reduction_op = CollectB;
@@ -1670,12 +1672,13 @@ module floo_nw_chimney #(
                            (floo_wide_unpack_generic.hdr.axi_ch == WideW)))
 
   // We do not support reduction with ROB Buffer
-  `ASSERT_INIT(NoRobReduction, !EnCollectiveOperation || (ChimneyCfgN.BRoBType == NoRoB && 
+  `ASSERT_INIT(NoRobReduction, !(EnWideCollectiveOperation | EnNarrowCollectiveOperation) || 
+                          (ChimneyCfgN.BRoBType == NoRoB && 
                            ChimneyCfgN.RRoBType == NoRoB &&
                            ChimneyCfgW.BRoBType == NoRoB &&
                            ChimneyCfgW.RRoBType == NoRoB))
 
   // We do not support reduction without multicast
-  `ASSERT_INIT(NoReductionWithoutMulticast, (EnMultiCast || !EnCollectiveOperation))
+  `ASSERT_INIT(NoWideReductionWithoutMulticast, (EnMultiCast || !(EnWideCollectiveOperation | EnNarrowCollectiveOperation)))
 
 endmodule
