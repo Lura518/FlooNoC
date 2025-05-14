@@ -69,7 +69,8 @@ module floo_nw_router #(
   parameter int unsigned RdControllerComplex  = 2,
   parameter int unsigned RdPartialBufferSize  = 2,
   parameter int unsigned RdTagBits            = 4,
-  parameter bit          RdSupportAxi         = 1'b1
+  parameter bit          RdSupportAxi         = 1'b1,
+  parameter bit          RdSupportLoopback    = 1'b0
 ) (
   input  logic   clk_i,
   input  logic   rst_ni,
@@ -196,6 +197,7 @@ module floo_nw_router #(
     .RdPartialBufferSize  ( RdPartialBufferSize       ),
     .RdTagBits            ( RdTagBits                 ),
     .RdSupportAxi         ( RdSupportAxi              ),
+    .RdSupportLoopback    ( RdSupportLoopback         ),
     .AxiCfgOffload        ( AxiCfgN                   ),
     .AxiCfgParallel       ( AxiCfgN                   )
   ) i_req_floo_router (
@@ -261,6 +263,7 @@ localparam axi_narrow_b_chan_t NarrowBMask = '{resp: 2'b11, default: '0};
     .NarrowRspMask        ( floo_rsp_generic_flit_t'(NarrowBFlitMask.payload) ),
     .WideRspMask          ( floo_rsp_generic_flit_t'(WideBFlitMask.payload)   ),
     .RdSupportAxi         ( RdSupportAxi            ),
+    .RdSupportLoopback    ( RdSupportLoopback       ),
     .AxiCfgOffload        ( '0                      ),
     .AxiCfgParallel       ( AxiCfgN                 )
   ) i_rsp_floo_router (
@@ -313,6 +316,7 @@ localparam axi_narrow_b_chan_t NarrowBMask = '{resp: 2'b11, default: '0};
     .RdPartialBufferSize  ( RdPartialBufferSize       ),
     .RdTagBits            ( RdTagBits                 ),
     .RdSupportAxi         ( RdSupportAxi              ),
+    .RdSupportLoopback    ( RdSupportLoopback         ),
     .AxiCfgOffload        ( AxiCfgW                   ),
     .AxiCfgParallel       ( '0                        )
   ) i_wide_req_floo_router (

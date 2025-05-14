@@ -67,6 +67,7 @@ module floo_router
   parameter int unsigned RdControllerComplex  = 2,
   parameter int unsigned RdPartialBufferSize  = 2,
   parameter int unsigned RdTagBits            = 4,
+  parameter bit          RdSupportLoopback    = 1'b0,
   /// AXI dependent parameter
   parameter bit          RdSupportAxi         = 1'b1,
   parameter axi_cfg_t    AxiCfgOffload        = '0,
@@ -183,7 +184,7 @@ module floo_router
   flit_t [NumOutput-1:0] red_data_out;
 
   // Vars to separate reductions with only one member
-  logic [NumInput-1:0][NumVirtChannels-1:0][NumInput-1:0] red_expected_in_route;
+  logic [NumInput-1:0][NumVirtChannels-1:0][NumInput-1:0] red_expected_in_route, red_expected_in_route_loopback;
   logic [NumInput-1:0][NumVirtChannels-1:0] red_single_member;
 
 
@@ -204,9 +205,16 @@ module floo_router
           .route_sel_o  (red_expected_in_route[in][v])
         );
 
+        // If the option RdSupportLoopback is not set then the logic doesn't expect a flit from the Eject port!
+        if((route_mask[in][v][Eject] == 1'b1) && (red_expected_in_route[in][v][Eject] == 1'b1) && (!RdSupportLoopback)) begin
+          assign red_expected_in_route_loopback[in][v] = red_expected_in_route[in][v] & (!(1 << Eject));  // Clear the Eject flag!
+        end else begin
+          assign red_expected_in_route_loopback[in][v] = red_expected_in_route[in][v];
+        end
+
         // onehot decoding of the input direction
         // bypass the reduction if only one input member is selected (if none is selected then bypass too [should never occure but to avoid deadlocks])
-        assign red_single_member[in][v] = $onehot(red_expected_in_route[in][v]) | (&(~red_expected_in_route[in][v]));
+        assign red_single_member[in][v] = $onehot(red_expected_in_route_loopback[in][v]) | (&(~red_expected_in_route_loopback[in][v]));
 
         // Generate the handshaking
         stream_demux #(
@@ -229,7 +237,7 @@ module floo_router
     assign red_valid_in = '0;
     assign red_data_in = '0;
     assign red_route_selected = '0;
-    assign red_expected_in_route = '0;
+    assign red_expected_in_route_loopback = '0;
   end
 
   // Reduction logic
@@ -258,7 +266,7 @@ module floo_router
       .ready_o                    (red_ready_in),
       .data_i                     (red_data_in),
       .output_route_i             (red_route_selected),
-      .expected_input_i           (red_expected_in_route),
+      .expected_input_i           (red_expected_in_route_loopback),
       .valid_o                    (red_valid_out),
       .ready_i                    (red_ready_out),
       .data_o                     (red_data_out),
@@ -488,6 +496,8 @@ module floo_router
   // When en the parallel reduction we also need to enable the "normal" reduction
   `ASSERT_INIT(SystemConfig, !EnParallelReduction || EnReduction)
   // Currently the AXI support must be enabled
-  `ASSERT_INIT(Support_AXI, RdSupportAxi)
+  `ASSERT_INIT(SupportAXI, RdSupportAxi)
+  // We can not support Loopback when the option is not enabled
+  `ASSERT_INIT(SupportLoopback, !(RdSupportLoopback && NoLoopback))
 
 endmodule
