@@ -22,7 +22,7 @@ module floo_reduction_arbiter import floo_pkg::*;
   // allowing extraction of relevant bits and detection of any participant errors.
   parameter payload_t    NarrowRspMask        = '0,
   parameter payload_t    WideRspMask          = '0,
-  parameter type         id_t                 = logic
+  parameter type         id_t                 = logic,
   /// AXI dependent parameter
   parameter bit          RdSupportAxi         = 1'b1,
   parameter axi_cfg_t    AxiCfg               = '0
