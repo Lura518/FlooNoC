@@ -179,7 +179,7 @@ module floo_nw_router #(
     .NoLoopback           ( 1'b1                      ),
     .EnMultiCast          ( EnMultiCast               ),
     .EnReduction          ( EnParallelReduction       ),
-    .EnOffloadReduction   ( EnOffloadNarrowReduction  ),
+    .EnOffloadReduction   ( EnOffloadNarrowReduction | EnOffloadWideReduction ),
     .EnParallelReduction  ( EnParallelReduction       ),
     .id_t                 ( id_t                      ),
     .addr_rule_t          ( addr_rule_t               ),
