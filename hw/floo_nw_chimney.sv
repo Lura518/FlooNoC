@@ -882,10 +882,10 @@ module floo_nw_chimney #(
   id_t [NumNWAxiChannels-1:0] axi_rsp_src_id;
   mask_sel_t [NumNWAxiChannels-1:0] x_mask_sel, y_mask_sel;
 
-  floo_pkg::collect_comm_e [NumAxiChannels-1:0] red_coll_type;
+  floo_pkg::collect_comm_e [NumNWAxiChannels-1:0] red_coll_type;
   floo_pkg::collect_comm_e red_narrow_coll_type_q;
   floo_pkg::collect_comm_e red_wide_coll_type_q;
-  floo_pkg::reduction_op_e [NumAxiChannels-1:0] red_coll_operation;
+  floo_pkg::reduction_op_e [NumNWAxiChannels-1:0] red_coll_operation;
   floo_pkg::reduction_op_e red_narrow_coll_operation_q;
   floo_pkg::reduction_op_e red_wide_coll_operation_q;
 

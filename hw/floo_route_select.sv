@@ -123,7 +123,6 @@ module floo_route_select
         .xy_id_i     ( xy_id_i   ),
         .route_sel_o ( route_sel_multicast )
       );
-      assign route_sel_id = '0; // Not defined in multicast
     end else begin : gen_no_mcast
       assign route_sel_multicast = '0;  // No MCast supported
     end
