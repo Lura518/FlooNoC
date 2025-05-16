@@ -186,6 +186,7 @@ module floo_router
   // Vars to separate reductions with only one member
   logic [NumInput-1:0][NumVirtChannels-1:0][NumInput-1:0] red_expected_in_route, red_expected_in_route_loopback;
   logic [NumInput-1:0][NumVirtChannels-1:0] red_single_member;
+  logic [NumInput-1:0][NumVirtChannels-1:0] red_mask_loopback_port;
 
 
   // If we support offload reduction and a reduction is dedected then we split the signal and forward it to the reduction
@@ -206,11 +207,8 @@ module floo_router
         );
 
         // If the option RdSupportLoopback is not set then the logic doesn't expect a flit from the Eject port!
-        if((route_mask[in][v][Eject] == 1'b1) && (red_expected_in_route[in][v][Eject] == 1'b1) && (!RdSupportLoopback)) begin
-          assign red_expected_in_route_loopback[in][v] = red_expected_in_route[in][v] & (!(1 << Eject));  // Clear the Eject flag!
-        end else begin
-          assign red_expected_in_route_loopback[in][v] = red_expected_in_route[in][v];
-        end
+        assign red_mask_loopback_port = ((route_mask[in][v][Eject] == 1'b1) && (red_expected_in_route[in][v][Eject] == 1'b1) && (!RdSupportLoopback));
+        assign red_expected_in_route_loopback[in][v] = (red_mask_loopback_port) ? (red_expected_in_route[in][v] & (!(1 << Eject))) : red_expected_in_route[in][v];
 
         // onehot decoding of the input direction
         // bypass the reduction if only one input member is selected (if none is selected then bypass too [should never occure but to avoid deadlocks])
