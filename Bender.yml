@@ -41,6 +41,7 @@ sources:
   - hw/floo_route_xymask.sv
   - hw/floo_mask_extract.sv
 # - hw/floo_mask_translation.sv
+  - hw//floo_alu.sv
   - hw/floo_offload_reduction_stalling.sv
   - hw/floo_offload_reduction_buffer.sv
   - hw/floo_offload_reduction_taggen.sv
