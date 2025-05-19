@@ -377,7 +377,8 @@ module floo_router
         // Arbiter to be instantiated for reduction operations.
         // Repsonses from a multicast request are also treated as reductions.
         floo_output_arbiter #(
-          .NumRoutes            ( localNumInputs      ),
+          .NumRoutes            ( NumInput            ),
+          .NumSlaveRoutes       ( localNumInputs-NumInput ),
           .EnParallelReduction  ( EnParallelReduction ),
           .flit_t               ( flit_t              ),
           .hdr_t                ( hdr_t               ),
