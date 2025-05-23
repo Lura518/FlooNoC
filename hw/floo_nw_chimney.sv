@@ -32,8 +32,18 @@ module floo_nw_chimney #(
   parameter int unsigned MaxAtomicTxns           = 1,
   /// Enable collective operation (subfiel type and operation)
   parameter bit EnWideCollectiveOperation               = 1'b0,
-    /// Enable collective operation (subfiel type and operation)
+  /// Enable narrow collective operation (subfiel type and operation required)
   parameter bit EnNarrowCollectiveOperation             = 1'b0,
+  /// Enable the b-response for wide collectiv operation 
+  /// Chimney can be the destination but not a source! e.g. it reacts only with
+  /// the approbriate B-Response
+  parameter bit EnBRespWideCollectiveOperation          = EnWideCollectiveOperation,
+  /// Enable the b-response for narrow collectiv operation 
+  parameter bit EnBRespNarrowCollectiveOperation        = EnNarrowCollectiveOperation,
+  /// Mask incoming wide collectiv operation when sending the user field to the axi port!
+  parameter bit EnMaskingWideCollectivOperation         = 1'b0,
+  /// Mask incoming narrow collectiv operation when sending the user field to the axi port!
+  parameter bit EnMaskingNarrowCollectivOperation       = 1'b0,
   /// Node ID type for routing
   parameter type id_t                                   = logic,
   /// RoB index type for reordering.
@@ -637,6 +647,41 @@ module floo_nw_chimney #(
     `AXI_SET_AW_STRUCT(axi_wide_out_req_o.aw, axi_wide_aw_queue_out);
     axi_wide_meta_buf_rsp_in = axi_wide_out_rsp_i;
     axi_wide_meta_buf_rsp_in.aw_ready = wide_aw_out_queue_ready;
+    // If the option is enabled: mask the collective operation bits here
+    // Do it in this way so potential future fields are passed without any problems
+    if(EnMaskingWideCollectivOperation) begin
+      user_wide_struct_t user_aw;
+      user_wide_struct_t user_w;
+      // Mask the AW Channel
+      user_aw = axi_wide_out_req_o.aw.user;
+      user_aw.mcast_mask = '0;
+      user_aw.coll_type = Unicast;
+      user_aw.coll_op = '0;
+      axi_wide_out_req_o.aw.user = user_aw;
+      // Mask the W Channel
+      user_w = axi_wide_out_req_o.w.user;
+      user_w.mcast_mask = '0;
+      user_w.coll_type = Unicast;
+      user_w.coll_op = '0;
+      axi_wide_out_req_o.w.user = user_w;
+    end
+    
+    if(EnMaskingNarrowCollectivOperation) begin
+      user_narrow_struct_t user_aw;
+      user_narrow_struct_t user_w;
+      // Mask the AW Channel
+      user_aw = axi_narrow_out_req_o.aw.user;
+      user_aw.mcast_mask = '0;
+      user_aw.coll_type = Unicast;
+      user_aw.coll_op = '0;
+      axi_narrow_out_req_o.aw.user = user_aw;
+      // Mask the W Channel
+      user_w = axi_narrow_out_req_o.w.user;
+      user_w.mcast_mask = '0;
+      user_w.coll_type = Unicast;
+      user_w.coll_op = '0;
+      axi_narrow_out_req_o.w.user = user_w;
+    end
   end
 
   ///////////////////////
@@ -1125,7 +1170,7 @@ module floo_nw_chimney #(
     // The AXI member on the chimney should not be aware of a reduction / multicast!
     // Multicast --> Collect the B responses in a parallel reduction
     // Reduction --> Multicast the B response to all members
-    if(EnNarrowCollectiveOperation) begin
+    if(EnBRespNarrowCollectiveOperation) begin
       if(narrow_aw_buf_hdr_out.hdr.commtype == Multicast) begin
         floo_narrow_b.hdr.commtype = ParallelReduction;
         floo_narrow_b.hdr.reduction_op = CollectB;
@@ -1224,7 +1269,7 @@ module floo_nw_chimney #(
     // The AXI member on the chimney should not be aware of a reduction / multicast!
     // Multicast --> Collect the B responses in a parallel reduction
     // Reduction --> Multicast the B response to all members
-    if(EnWideCollectiveOperation == 1'b1) begin
+    if(EnBRespWideCollectiveOperation == 1'b1) begin
       if(wide_aw_buf_hdr_out.hdr.commtype == Multicast) begin
         floo_wide_b.hdr.commtype = ParallelReduction;
         floo_wide_b.hdr.reduction_op = CollectB;
