@@ -29,6 +29,8 @@ module floo_nw_router #(
   /// Disable illegal connections in router
   /// (only applies for `RouteAlgo == XYRouting`)
   parameter bit          XYRouteOpt           = 1'b1,
+  /// Disables loopback connections
+  parameter bit          NoLoopback           = 1'b1,
   /// Enable multicast feature
   parameter bit          EnMultiCast          = 1'b0,
   /// Enable parallel reduction feature
@@ -176,7 +178,7 @@ module floo_nw_router #(
     .RouteAlgo            ( RouteAlgo                 ),
     .XYRouteOpt           ( XYRouteOpt                ),
     .NumAddrRules         ( NumAddrRules              ),
-    .NoLoopback           ( 1'b1                      ),
+    .NoLoopback           ( NoLoopback                ),
     .EnMultiCast          ( EnMultiCast               ),
     .EnReduction          ( EnParallelReduction       ),
     .EnOffloadReduction   ( EnOffloadNarrowReduction | EnOffloadWideReduction ),
@@ -250,7 +252,7 @@ localparam axi_narrow_b_chan_t NarrowBMask = '{resp: 2'b11, default: '0};
     .RouteAlgo            ( RouteAlgo               ),
     .XYRouteOpt           ( XYRouteOpt              ),
     .NumAddrRules         ( NumAddrRules            ),
-    .NoLoopback           ( 1'b1                    ),
+    .NoLoopback           ( NoLoopback              ),
     .EnMultiCast          ( EnOffloadNarrowReduction | EnOffloadWideReduction | EnParallelReduction ),
     .EnReduction          ( EnMultiCast             ),
     .EnOffloadReduction   ( 1'b0                    ),
@@ -298,7 +300,7 @@ localparam axi_narrow_b_chan_t NarrowBMask = '{resp: 2'b11, default: '0};
     .RouteAlgo            ( RouteAlgo                 ),
     .XYRouteOpt           ( XYRouteOpt                ),
     .NumAddrRules         ( NumAddrRules              ),
-    .NoLoopback           ( 1'b1                      ),
+    .NoLoopback           ( NoLoopback                ),
     .EnMultiCast          ( EnMultiCast               ),
     .EnReduction          ( 1'b0                      ),
     .EnOffloadReduction   ( EnOffloadWideReduction    ),
