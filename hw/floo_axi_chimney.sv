@@ -973,6 +973,6 @@ module floo_axi_chimney #(
   `ASSERT_INIT(NoRobReduction, !EnCollectiveOperation || (ChimneyCfg.BRoBType == NoRoB && ChimneyCfg.RRoBType == NoRoB))
 
   // We do not support reduction without multicast
-  `ASSERT_INIT(NoReductionWithoutMulticast, (EnMultiCast || !EnCollectiveOperation))
+  `ASSERT_INIT(NoReductionWithoutMulticast, (RouteCfg.EnMultiCast || !EnCollectiveOperation))
 
 endmodule

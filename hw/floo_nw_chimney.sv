@@ -282,7 +282,7 @@ module floo_nw_chimney #(
 
     // Extract the multicast mask bits from the AXI user bits
     if (RouteCfg.EnMultiCast) begin : gen_mask
-      user_struct_t user;
+      user_narrow_struct_t user;
       assign user = axi_narrow_in_req_i.aw.user;
       // TODO(lleone): Check subfield name is `mcast_mask`
       assign axi_narrow_req_in_mask = user.mcast_mask;
@@ -421,7 +421,9 @@ module floo_nw_chimney #(
     `AXI_ASSIGN_RESP_STRUCT(axi_wide_in_rsp_o, axi_wide_rsp_out)
 
     if (RouteCfg.EnMultiCast) begin : gen_mask
-      assign axi_wide_req_in_mask = axi_wide_in_req_i.aw.user;
+      user_wide_struct_t user;
+      assign user = axi_wide_in_req_i.aw.user;
+      assign axi_wide_req_in_mask = user.mcast_mask;
     end else begin : gen_no_mask
       assign axi_wide_req_in_mask = '0;
     end
@@ -1724,6 +1726,6 @@ module floo_nw_chimney #(
                            ChimneyCfgW.RRoBType == NoRoB))
 
   // We do not support reduction without multicast
-  `ASSERT_INIT(NoWideReductionWithoutMulticast, (EnMultiCast || !(EnWideCollectiveOperation | EnNarrowCollectiveOperation)))
+  `ASSERT_INIT(NoWideReductionWithoutMulticast, (RouteCfg.EnMultiCast || !(EnWideCollectiveOperation | EnNarrowCollectiveOperation)))
 
 endmodule
