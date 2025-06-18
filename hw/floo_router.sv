@@ -386,6 +386,7 @@ module floo_router
           .NarrowRspMask        ( NarrowRspMask       ),
           .WideRspMask          ( WideRspMask         ),
           .id_t                 ( id_t                ),
+          .RdSupportLoopback    ( RdSupportLoopback   ),
           .RdSupportAxi         ( RdSupportAxi        ),
           .AxiCfg               ( AxiCfgParallel      )
         ) i_output_arbiter (

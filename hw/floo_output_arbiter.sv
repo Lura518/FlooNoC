@@ -26,6 +26,8 @@ module floo_output_arbiter import floo_pkg::*;
   parameter payload_t    NarrowRspMask        = '0,
   parameter payload_t    WideRspMask          = '0,
   parameter type         id_t                 = logic,
+  /// Do we support local loopback e.g. should the logic expect the local flit or not
+  parameter bit          RdSupportLoopback    = 1'b0,
   /// AXI dependent parameter
   parameter bit          RdSupportAxi         = 1'b1,
   parameter axi_cfg_t    AxiCfg               = '0,
@@ -100,6 +102,7 @@ module floo_output_arbiter import floo_pkg::*;
     .id_t                 ( id_t                ),
     .NarrowRspMask        ( NarrowRspMask       ),
     .WideRspMask          ( WideRspMask         ),
+    .RdSupportLoopback    ( RdSupportLoopback   ),
     .RdSupportAxi         ( RdSupportAxi        ),
     .AxiCfg               ( AxiCfg              )
   ) i_reduction_arbiter (
