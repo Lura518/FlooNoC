@@ -161,8 +161,10 @@ logic [NumRoutes-1:0]                   stalling_ready;
 
 // Singal to insert a new (incoming) reduction in the buffer (serialzied approach to reduce required logic)
 // Iterates over all input and set to 1 if we found a tag that is not inside the controller
-flit_in_out_dir_tag_t new_incoming_flit;
-logic   new_incoming_valid;
+flit_in_out_dir_tag_t [NumRoutes-1:0]   unkown_incoming_flit;
+flit_in_out_dir_tag_t                   new_incoming_flit;
+logic [NumRoutes-1:0]                   unkown_incoming_valid;
+logic                                   new_incoming_valid;
 
 // Indicates if we have inserted the new data into the buffer or not
 logic f_insert_data_in_buffer;
@@ -224,9 +226,38 @@ end else begin : gen_no_stalling
 end
 
 // Check if on any input we have new data are available. Each input is checked against each buffer entry if the tag is available.
-// If one element is found then forward it to the "new_incoming_..." vars. This creates a bottleneck which allows to only update 1 incoming
-// reduction at the time. 
-// TODO (raroth): find better way to introduce new reduction into the buffer
+// This creates a bottleneck however we can only schedule a single op in one cycle so it shouldn't impact performence
+if(GENERIC || STALLING) begin : gen_filter_unkown_flit_tags
+    // Search if any element on the input can be inserted into the buffer
+    always_comb begin
+        // Init all Vars
+        unkown_incoming_flit = '0;
+        unkown_incoming_valid = 1'b0;
+
+        // Loop over all inputs
+        for(int k = 0; k < NumRoutes; k++) begin
+            // Is the incoming flit valid?
+            if(stalling_valid[k] == 1'b1) begin
+                // This input can be inserted if it is not already in the buffer
+                unkown_incoming_valid[k] = 1'b1;
+                // Assign the acutal data here
+                unkown_incoming_flit[k] = stalling_flit[k];
+                // Go through the hole buffer and check if the element is already inside or not
+                for(int j = 0; j < RdBufferSize; j++) begin
+                    if((stalling_flit[k].tag == buffer_q[j].tag) && (buffer_q[j].f_valid == 1'b1)) begin
+                        unkown_incoming_valid[k] = 1'b0;
+                    end
+                end
+            end
+        end
+    end
+end else begin
+    assign unkown_incoming_flit = '0;
+    assign unkown_incoming_valid = 1'b0;
+end
+
+// Select one of the unkown flits to be inserted in the buffer next. (Prio. lower indexes)
+// Both loop's could be combined but maybe there could be a better way to find the lsb indexes here
 if(GENERIC || STALLING) begin : gen_incoming_data
     // Search if any element on the input can be inserted into the buffer
     always_comb begin
@@ -234,20 +265,13 @@ if(GENERIC || STALLING) begin : gen_incoming_data
         new_incoming_flit = '0;
         new_incoming_valid = 1'b0;
 
-        // Loop over all inputs
+        // Loop over unkown inputs
         for(int k = 0; k < NumRoutes; k++) begin
-            // Search for a potential match in the buffer only if the incoming element is valid (And we have not yet scheduled any insertion)
-            if((stalling_valid[k] == 1'b1) && (new_incoming_valid == 1'b0)) begin
-                // This input can be inserted if it is not already in the buffer
+            // Is the incoming flit valid and is not already one selected?
+            if((unkown_incoming_valid[k] == 1'b1) && (new_incoming_valid == 1'b0)) begin
+                // If we find a valid one - selct our selection
                 new_incoming_valid = 1'b1;
-                // Assign the acutal data here
-                new_incoming_flit = stalling_flit[k];
-                // Go through the hole buffer and check if the element is already inside or not
-                for(int j = 0; j < RdPipelineDepth; j++) begin
-                    if((stalling_flit[k].tag == buffer_q[j].tag) && (buffer_q[j].f_valid == 1'b1)) begin
-                        new_incoming_valid = 1'b0;
-                    end
-                end
+                new_incoming_flit = unkown_incoming_flit[k];
             end
         end
     end
@@ -438,14 +462,15 @@ if(GENERIC || STALLING) begin : gen_controller_stalling_generic
                     $error($time, "We retired an element other from buffer entry 0. This should not happen. Why?");
                 end
             end
-            
-            // 5 Stage: Copy the data to a higher prio slot if it is free and we are valid
-            // (Stalling case already handled by having i only 0!)
-            if(i != 0)begin
+        end
+
+        // 5 Stage: Copy the data to a higher prio slot if it is free and we are valid
+        // (Stalling case already handled by having i only 0!)
+        for(int i = 0; i < RdBufferSize; i++) begin
+            if(i != 0) begin
                 if((buffer_d[i-1].f_valid == 1'b0) && (buffer_d[i].f_valid == 1'b1)) begin
-                    buffer_d[i-1] = buffer_d[i];
-                    buffer_d[i-1].f_valid = 1'b1;
-                    buffer_d[i].f_valid = 1'b0;
+                    buffer_d[i-1] = buffer_d[i];    // copy the data (incl. valid bit)
+                    buffer_d[i] = '0;               // delet all old data
                 end
             end
         end
