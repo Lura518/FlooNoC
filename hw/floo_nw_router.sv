@@ -26,6 +26,10 @@ module floo_nw_router #(
   parameter int unsigned InFifoDepth                = 0,
   /// Output buffer depth
   parameter int unsigned OutFifoDepth               = 0,
+  /// Input buffer depth reduction
+  parameter int unsigned InFifoDepthReduction       = 0,
+  /// Output buffer depth reduction
+  parameter int unsigned OutFifoDepthReduction      = 0,
   /// Disable illegal connections in router
   /// (only applies for `RouteAlgo == XYRouting`)
   parameter bit          XYRouteOpt                 = 1'b1,
@@ -39,6 +43,10 @@ module floo_nw_router #(
   parameter bit          EnOffloadWideReduction     = 1'b0,
   /// Enable offload reduction on the narrow port
   parameter bit          EnOffloadNarrowReduction   = 1'b0,
+  /// Enable virtual channel for wide offlaod reduction
+  parameter bit          EnCollWideVirtChannel      = 1'b0,
+  /// Enable virtual channel for narrow offlaod reduction
+  parameter bit          EnCollNarrowVirtChannel    = 1'b0,
   /// Node ID type
   parameter type id_t                               = logic,
   /// Header type
@@ -106,6 +114,19 @@ module floo_nw_router #(
   output logic                          offload_narrow_resp_ready_o
 );
 
+  // Define the size of the Virtual Channel for the narrow router
+  localparam int unsigned NarrowVirtalChannel = (EnCollNarrowVirtChannel) ? 2 : 1;
+  // Define the size of the Virtual Channel for the narrow router
+  localparam int unsigned WideVirtalChannel = (EnCollWideVirtChannel) ? 2 : 1;
+
+  // Define the fifo config for the narrow request port
+  localparam int unsigned InFifoNarrow [NarrowVirtalChannel-1:0] = (EnCollNarrowVirtChannel) ? '{InFifoDepthReduction, InFifoDepth} : '{InFifoDepth};
+  localparam int unsigned OutFifoNarrow [NarrowVirtalChannel-1:0] = (EnCollNarrowVirtChannel) ? '{OutFifoDepthReduction, OutFifoDepth} : '{OutFifoDepth};
+
+  // Define the fifo config for the narrow request port
+  localparam int unsigned InFifoWide [WideVirtalChannel-1:0] = (EnCollWideVirtChannel) ? '{InFifoDepthReduction, InFifoDepth} : '{InFifoDepth};
+  localparam int unsigned OutFifoWide [WideVirtalChannel-1:0] = (EnCollWideVirtChannel) ? '{OutFifoDepthReduction, OutFifoDepth} : '{OutFifoDepth};
+
   typedef logic [AxiCfgN.AddrWidth-1:0] axi_addr_t;
   typedef logic [AxiCfgN.InIdWidth-1:0] axi_narrow_in_id_t;
   typedef logic [AxiCfgN.UserWidth-1:0] axi_narrow_user_t;
@@ -128,13 +149,13 @@ module floo_nw_router #(
   floo_req_chan_t [NumOutputs-1:0] req_out;
   floo_rsp_chan_t [NumOutputs-1:0] rsp_in;
   floo_wide_chan_t [NumRoutes-1:0] wide_in, wide_out;
-  logic [NumInputs-1:0] req_valid_in, req_ready_out;
+  logic [NumInputs-1:0][NarrowVirtalChannel-1:0] req_valid_in, req_ready_out;
   logic [NumInputs-1:0] rsp_valid_out, rsp_ready_in;
-  logic [NumOutputs-1:0] req_valid_out, req_ready_in;
+  logic [NumOutputs-1:0][NarrowVirtalChannel-1:0] req_valid_out, req_ready_in;
   logic [NumOutputs-1:0] rsp_valid_in, rsp_ready_out;
-  logic [NumRoutes-1:0] wide_valid_in, wide_valid_out;
-  logic [NumRoutes-1:0] wide_ready_in, wide_ready_out;
-
+  logic [NumRoutes-1:0][WideVirtalChannel-1:0] wide_valid_in, wide_valid_out;
+  logic [NumRoutes-1:0][WideVirtalChannel-1:0] wide_ready_in, wide_ready_out;
+  
   for (genvar i = 0; i < NumInputs; i++) begin : gen_chimney_req
     assign req_valid_in[i] = floo_req_i[i].valid;
     assign floo_req_o[i].ready = req_ready_out[i];
@@ -166,9 +187,9 @@ module floo_nw_router #(
     .NumInput             ( NumInputs                 ),
     .NumOutput            ( NumOutputs                ),
     .NumPhysChannels      ( 1                         ),
-    .NumVirtChannels      ( 1                         ),
-    .InFifoDepth          ( InFifoDepth               ),
-    .OutFifoDepth         ( OutFifoDepth              ),
+    .NumVirtChannels      ( NarrowVirtalChannel       ),
+    .InFifoDepth          ( InFifoNarrow              ),
+    .OutFifoDepth         ( OutFifoNarrow             ),
     .RouteAlgo            ( RouteAlgo                 ),
     .XYRouteOpt           ( XYRouteOpt                ),
     .NumAddrRules         ( NumAddrRules              ),
@@ -176,6 +197,7 @@ module floo_nw_router #(
     .EnMultiCast          ( EnMultiCast               ),
     .EnOffloadReduction   ( EnOffloadNarrowReduction | EnOffloadWideReduction ),
     .EnParallelReduction  ( EnParallelReduction       ),
+    .EnCollVirtChannel    ( EnCollNarrowVirtChannel   ),
     .id_t                 ( id_t                      ),
     .addr_rule_t          ( addr_rule_t               ),
     .flit_t               ( floo_req_generic_flit_t   ),
@@ -240,6 +262,7 @@ module floo_nw_router #(
     .EnMultiCast          ( EnOffloadNarrowReduction | EnOffloadWideReduction | EnParallelReduction ),
     .EnOffloadReduction   ( 1'b0                    ),
     .EnParallelReduction  ( EnMultiCast             ),
+    .EnCollVirtChannel    ( 1'b0                    ),
     .id_t                 ( id_t                    ),
     .addr_rule_t          ( addr_rule_t             ),
     .flit_t               ( floo_rsp_generic_flit_t ),
@@ -276,9 +299,9 @@ module floo_nw_router #(
   floo_router #(
     .NumRoutes            ( NumRoutes                 ),
     .NumPhysChannels      ( 1                         ),
-    .NumVirtChannels      ( 1                         ),
-    .InFifoDepth          ( InFifoDepth               ),
-    .OutFifoDepth         ( OutFifoDepth              ),
+    .NumVirtChannels      ( WideVirtalChannel         ),
+    .InFifoDepth          ( InFifoWide                ),
+    .OutFifoDepth         ( OutFifoWide               ),
     .RouteAlgo            ( RouteAlgo                 ),
     .XYRouteOpt           ( XYRouteOpt                ),
     .NumAddrRules         ( NumAddrRules              ),
@@ -286,6 +309,7 @@ module floo_nw_router #(
     .EnMultiCast          ( EnMultiCast               ),
     .EnOffloadReduction   ( EnOffloadWideReduction    ),
     .EnParallelReduction  ( 1'b0                      ),
+    .EnCollVirtChannel    ( EnCollWideVirtChannel     ),
     .id_t                 ( id_t                      ),
     .addr_rule_t          ( addr_rule_t               ),
     .flit_t               ( floo_wide_generic_flit_t  ),

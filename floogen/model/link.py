@@ -98,7 +98,7 @@ class NarrowWideLink(Link):
         """Render the typedefs of the links."""
         string = f"`FLOO_TYPEDEF_NW_CHAN_ALL(axi, req, rsp, wide, \
             {axi_narrow}, {axi_wide}, {cfg_n}, {cfg_w}, hdr_t)\n\n"
-        string += "`FLOO_TYPEDEF_NW_LINK_ALL(req, rsp, wide, req, rsp, wide)\n"
+        string += "`FLOO_TYPEDEF_NW_VIRT_CHAN_LINK_ALL(req, rsp, wide, req, rsp, wide, 1, 2)\n"
         return string
 
     def declare(self):

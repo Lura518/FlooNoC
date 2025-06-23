@@ -10,6 +10,10 @@
 `include "common_cells/registers.svh"
 
 /// A simple router with configurable number of ports, physical and virtual channels, and input/output buffers
+
+/// When we support reduction then we use the virtual channel
+/// Channel 0 transmits all unicast transmission
+/// Channel 1 transmits all collectiv operation
 module floo_router
   import floo_pkg::*;
 #(
@@ -20,13 +24,13 @@ module floo_router
   /// More fine-grained control over number of output ports
   parameter int unsigned NumOutput            = NumRoutes,
   /// Number of virtual channels
-  parameter int unsigned NumVirtChannels      = 0,
+  parameter int unsigned NumVirtChannels      = 1,
   /// Number of physical channels
   parameter int unsigned NumPhysChannels      = 1,
   /// Depth of input FIFOs
-  parameter int unsigned InFifoDepth          = 0,
+  parameter int unsigned InFifoDepth [NumVirtChannels-1:0] = '{default: 0},
   /// Depth of output FIFOs
-  parameter int unsigned OutFifoDepth         = 0,
+  parameter int unsigned OutFifoDepth [NumVirtChannels-1:0] = '{default: 0},
   /// Routing algorithm
   parameter route_algo_e RouteAlgo            = IdTable,
   /// Parameters, only used for ID-based and XY routing
@@ -45,6 +49,8 @@ module floo_router
   parameter bit          EnOffloadReduction   = 1'b0,
   /// Enable parallel reduction feature
   parameter bit          EnParallelReduction  = 1'b0,
+  /// Enable a seperate virtual channel for collectv operation
+  parameter bit          EnCollVirtChannel    = 1'b0,
   /// Various types
   parameter type         addr_rule_t          = logic,
   parameter type         flit_t               = logic,
@@ -120,7 +126,7 @@ module floo_router
 
       (* ungroup *)
       stream_fifo_optimal_wrap #(
-        .Depth  ( InFifoDepth ),
+        .Depth  ( InFifoDepth[v] ),
         .type_t ( flit_t      )
       ) i_stream_fifo (
         .clk_i      ( clk_i         ),
@@ -165,20 +171,33 @@ module floo_router
   // Var for the "normal" dataflow without any reduction
   logic  [NumInput-1:0][NumVirtChannels-1:0] cross_valid, cross_ready;
 
-  // Vars to branch the reduction off the main path (No virtual channel support for reduction)
+  // Vars to branch the reduction off the main path (for all virt channel)
   logic  [NumInput-1:0][NumVirtChannels-1:0] red_valid_in, red_ready_in;
-  logic  [NumInput-1:0][NumOutput-1:0] red_route_selected;
-  flit_t [NumInput-1:0] red_data_in;
+  flit_t [NumInput-1:0][NumVirtChannels-1:0] red_data_in;
+
+  // Var to determint the output direction of the flit
+  logic  [NumInput-1:0][NumVirtChannels-1:0][NumOutput-1:0] red_route_selected;
 
   // Vars for the data comming from the reduction
-  logic  [NumOutput-1:0] red_valid_out, red_ready_out;
-  flit_t [NumOutput-1:0] red_data_out;
+  logic  [NumOutput-1:0][NumVirtChannels-1:0] red_valid_out, red_ready_out;
+  flit_t [NumOutput-1:0][NumVirtChannels-1:0] red_data_out;
 
   // Vars to separate reductions with only one member
   logic [NumInput-1:0][NumVirtChannels-1:0][NumInput-1:0] red_expected_in_route, red_expected_in_route_loopback;
   logic [NumInput-1:0][NumVirtChannels-1:0] red_onehot_expected_in;
   logic [NumInput-1:0][NumVirtChannels-1:0] red_single_member;
   logic [NumInput-1:0][NumVirtChannels-1:0] red_mask_loopback_port;
+
+  // Var to support the virtal channel selection
+  logic  [NumInput-1:0] red_virt_sel_valid_in, red_virt_sel_ready_in;
+  flit_t [NumInput-1:0] red_virt_sel_data_in;
+
+  logic  [NumInput-1:0][NumOutput-1:0] red_virt_sel_route_selected;
+  logic  [NumInput-1:0][NumInput-1:0] red_virt_sel_expected_in_route;
+
+  logic  [NumOutput-1:0] red_virt_sel_valid_out, red_virt_sel_ready_out;
+  flit_t [NumOutput-1:0] red_virt_sel_data_out;
+
 
   // If we support offload reduction and a reduction is dedected then we split the signal and forward it to the reduction
   if(EnOffloadReduction == 1'b1) begin : gen_offload_reduction_demux
@@ -222,8 +241,8 @@ module floo_router
           .oup_ready_i        ({red_ready_in[in][v], cross_ready[in][v]})
         );
         // Assign the data
-        assign red_data_in[in] = in_routed_data[in][v];
-        assign red_route_selected[in] = route_mask[in][v];
+        assign red_data_in[in][v] = in_routed_data[in][v];
+        assign red_route_selected[in][v] = route_mask[in][v];
       end
     end
   end else begin
@@ -236,7 +255,40 @@ module floo_router
   end
 
   // Reduction logic
+  // If we use a seperate (virtual) channel for collectiv operation:
+  // We only "disable" the offload reduction part!
+  // The splitting / merging done infront / after the logic consists but all signals are tied to 0!
+  // The compile should clean this part as it is never used and it makes the code much more clean.
   if(EnOffloadReduction == 1'b1) begin : gen_reduction_logic
+    // Select the appropriate virtual channel
+    localparam int unsigned selVirtCh = (EnCollVirtChannel) ? 1 : 0;
+
+    // Forward the signal
+    for (genvar in = 0; in < NumInput; in++) begin : gen_input_virt_sel
+      // Data path
+      assign red_virt_sel_valid_in[in] = red_valid_in[in][selVirtCh];
+      assign red_ready_in[in][selVirtCh] = red_virt_sel_ready_in[in];
+      assign red_virt_sel_data_in[in] = red_data_in[in][selVirtCh];
+      // Metadata
+      assign red_virt_sel_route_selected[in] = red_route_selected[in][selVirtCh];
+      assign red_virt_sel_expected_in_route[in] = red_expected_in_route_loopback[in][selVirtCh];
+    end
+
+    // Tie down all unused signals
+    if(EnCollVirtChannel) begin
+      for (genvar in = 0; in < NumInput; in++) begin
+        assign red_ready_in[in][0] = '0;
+      end
+    end
+
+    // Threw error if we receive a wrong signal - This can never happen
+    if(EnCollVirtChannel) begin
+      for (genvar in = 0; in < NumInput; in++) begin
+        `ASSERT(CollOpReceivedOnWrongVirtChannel, !red_valid_in[in][0])
+      end
+    end
+
+    // Inst. the reduction logic
     floo_offload_reduction #(
       .NumRoutes                  (NumInput),
       .flit_t                     (flit_t),
@@ -251,14 +303,14 @@ module floo_router
       .rst_ni                     (rst_ni),
       .flush_i                    (1'b0),
       .node_id_i                  (xy_id_i),
-      .valid_i                    (red_valid_in),
-      .ready_o                    (red_ready_in),
-      .data_i                     (red_data_in),
-      .output_route_i             (red_route_selected),
-      .expected_input_i           (red_expected_in_route_loopback),
-      .valid_o                    (red_valid_out),
-      .ready_i                    (red_ready_out),
-      .data_o                     (red_data_out),
+      .valid_i                    (red_virt_sel_valid_in),
+      .ready_o                    (red_virt_sel_ready_in),
+      .data_i                     (red_virt_sel_data_in),
+      .output_route_i             (red_virt_sel_route_selected),
+      .expected_input_i           (red_virt_sel_expected_in_route),
+      .valid_o                    (red_virt_sel_valid_out),
+      .ready_i                    (red_virt_sel_ready_out),
+      .data_o                     (red_virt_sel_data_out),
       .reduction_req_type_o       (offload_req_op_o),
       .reduction_req_op1_o        (offload_req_operand1_o),
       .reduction_req_op2_o        (offload_req_operand2_o),
@@ -268,6 +320,23 @@ module floo_router
       .reduction_resp_valid_i     (offload_resp_valid_i),
       .reduction_resp_ready_o     (offload_resp_ready_o)      
     );
+
+    // Forward the output signal
+    for (genvar out = 0; out < NumOutput; out++) begin : gen_output_virt_sel
+      // Data path
+      assign red_data_out[out][selVirtCh] = red_virt_sel_data_out[out];
+      assign red_valid_out[out][selVirtCh] = red_virt_sel_valid_out[out];
+      assign red_virt_sel_ready_out[out] = red_ready_out[out][selVirtCh];
+    end
+
+    // Tie down all unused signals
+    if(EnCollVirtChannel) begin
+      for (genvar out = 0; out < NumOutput; out++) begin
+        assign red_data_out[out][0] = '0;
+        assign red_valid_out[out][0] = '0;
+      end
+    end
+
   end else begin
     assign red_data_out = '0;
     assign red_valid_out = '0;
@@ -276,6 +345,15 @@ module floo_router
     assign offload_req_operand2_o = '0;
     assign offload_req_valid_o = '0;
     assign offload_resp_ready_o = '0;
+
+    assign red_virt_sel_valid_in = '0;
+    assign red_virt_sel_ready_in = '0;
+    assign red_virt_sel_data_in = '0;
+    assign red_virt_sel_route_selected = '0;
+    assign red_virt_sel_expected_in_route = '0;
+    assign red_virt_sel_valid_out = '0;
+    assign red_virt_sel_ready_out = '0;
+    assign red_virt_sel_data_out = '0;
   end
 
   // Normal crossbar between all in / out routes
@@ -344,10 +422,10 @@ module floo_router
   if(EnOffloadReduction == 1'b1) begin : gen_assign_data_output
     for (genvar v = 0; v < NumVirtChannels; v++) begin : gen_con_virt
       for (genvar out = 0; out < NumOutput; out++) begin : gen_con_output
-        assign merged_data[out][v] = {red_data_out[out], masked_data[out][v]};
-        assign merged_valid[out][v] = {red_valid_out[out], masked_valid[out][v]};
+        assign merged_data[out][v] = {red_data_out[out][v], masked_data[out][v]};
+        assign merged_valid[out][v] = {red_valid_out[out][v], masked_valid[out][v]};
         assign masked_ready[out][v] = merged_ready[out][v][localNumInputs-2:0];
-        assign red_ready_out[out] = merged_ready[out][v][localNumInputs-1];
+        assign red_ready_out[out][v] = merged_ready[out][v][localNumInputs-1];
       end
     end
   end else begin
@@ -360,6 +438,9 @@ module floo_router
   flit_t [NumOutput-1:0][NumVirtChannels-1:0] out_data, out_buffered_data;
   logic  [NumOutput-1:0][NumVirtChannels-1:0] out_valid, out_ready;
   logic  [NumOutput-1:0][NumVirtChannels-1:0] out_buffered_valid, out_buffered_ready;
+
+  logic  out_valid_merged;
+  logic  out_ready_merged;
 
   for (genvar out = 0; out < NumOutput; out++) begin : gen_output
 
@@ -415,10 +496,10 @@ module floo_router
         );
       end
 
-      if (OutFifoDepth > 0) begin : gen_out_fifo
+      if (OutFifoDepth[v] > 0) begin : gen_out_fifo
         (* ungroup *)
         stream_fifo_optimal_wrap #(
-          .Depth  ( OutFifoDepth  ),
+          .Depth  ( OutFifoDepth[v]  ),
           .type_t ( flit_t        )
         ) i_stream_fifo (
           .clk_i      ( clk_i         ),
@@ -441,22 +522,68 @@ module floo_router
     end
 
     // Arbitrate virtual channels onto the physical channel
-    floo_vc_arbiter #(
-      .NumVirtChannels ( NumVirtChannels ),
-      .flit_t          ( flit_t          ),
-      .NumPhysChannels ( NumPhysChannels )
-    ) i_vc_arbiter (
-      .clk_i,
-      .rst_ni,
 
-      .valid_i ( out_buffered_valid[out] ),
-      .ready_o ( out_buffered_ready[out] ),
-      .data_i  ( out_buffered_data [out] ),
+    // The virtual channel in the reduction enviroment is only beeing used to separate the unicast stream and 
+    // collectiv operation stream as these leads to deadlock in the system.
+    // However the chimneys are not fully equipped for virtual operation as it can only receive one flit on any channel
+    // at the same time!
 
-      .ready_i ( ready_i  [out] ),
-      .valid_o ( valid_o  [out] ),
-      .data_o  ( data_o   [out] )
-    );
+    // As the snitch cluster (generally all ips) uses the axi handshaking which generates logical loops together with
+    // the virtual channel handshaking I decided to make the local "ejection" port not virtual channel capable.
+    // If virtual channel enabled we use an normal wormhold arbiter for all local channels.
+
+    // For the overall scheme we still use the phyisical signal of the virtual channel but as mentioned only one of the
+    // virtual channel is allowed to be set!
+
+    if((EnCollVirtChannel == 1'b0) || (out != Eject)) begin
+      floo_vc_arbiter #(
+        .NumVirtChannels ( NumVirtChannels ),
+        .flit_t          ( flit_t          ),
+        .NumPhysChannels ( NumPhysChannels )
+      ) i_vc_arbiter (
+        .clk_i,
+        .rst_ni,
+
+        .valid_i ( out_buffered_valid[out] ),
+        .ready_o ( out_buffered_ready[out] ),
+        .data_i  ( out_buffered_data [out] ),
+
+        .ready_i ( ready_i  [out] ),
+        .valid_o ( valid_o  [out] ),
+        .data_o  ( data_o   [out] )
+      );
+    end else begin
+      floo_wormhole_arbiter #(
+        .NumRoutes  ( NumVirtChannels ),
+        .flit_t     ( flit_t   )
+      ) i_wormhole_arbiter (
+        .clk_i,
+        .rst_ni,
+
+        .valid_i ( out_buffered_valid[out] ),
+        .ready_o ( out_buffered_ready[out] ),
+        .data_i  ( out_buffered_data [out] ),
+
+        .valid_o ( out_valid_merged ),
+        .ready_i ( out_ready_merged ),
+        .data_o  ( data_o[out] )
+      );
+
+      always_comb begin : demuxWormholeArbiter
+        // Set init values
+        valid_o[out] = '0;
+        out_ready_merged = '0;
+
+        // forward the hs on either the channel with the unicast flits or the collective flits
+        if(data_o[out][0].hdr.commtype == Unicast) begin
+          valid_o[out][0] = out_valid_merged;
+          out_ready_merged = ready_i[out][0];
+        end else begin
+          valid_o[out][1] = out_valid_merged;
+          out_ready_merged = ready_i[out][1];
+        end
+      end
+    end
   end
 
   for (genvar i = 0; i < NumInput; i++) begin : gen_input_assert
@@ -500,8 +627,8 @@ module floo_router
 
   // Multicast is currently only supported for `XYRouting`
   `ASSERT_INIT(NoMultiCastSupport, !(EnMultiCast && RouteAlgo != XYRouting))
-  // Assertian check that when we use the FP reduction no virtual channel are init
-  `ASSERT_INIT(NoVirtChanSupport, !(EnOffloadReduction && (NumVirtChannels != 1)))
+  // Decide if we either only use one virtual channel or map all collectiv operation to a second one
+  `ASSERT_INIT(WrongVirtualChannelDefinition, (EnCollVirtChannel && NumVirtChannels == 2) || (!EnCollVirtChannel && NumVirtChannels == 1))
   // We only support symmetrical configuration for the FP reduction
   `ASSERT_INIT(NoSymConfig, !(EnOffloadReduction && (NumInput != NumOutput)))
   // Currently the AXI support must be enabled
