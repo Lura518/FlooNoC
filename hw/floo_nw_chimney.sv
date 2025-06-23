@@ -44,6 +44,10 @@ module floo_nw_chimney #(
   parameter bit EnMaskingWideCollectivOperation         = 1'b0,
   /// Mask incoming narrow collectiv operation when sending the user field to the axi port!
   parameter bit EnMaskingNarrowCollectivOperation       = 1'b0,
+  /// Enable virtual channel for wide offlaod reduction
+  parameter bit EnCollWideVirtChannel                   = 1'b0,
+  /// Enable virtual channel for narrow offlaod reduction
+  parameter bit EnCollNarrowVirtChannel                 = 1'b0,
   /// Node ID type for routing
   parameter type id_t                                   = logic,
   /// RoB index type for reordering.
@@ -269,6 +273,13 @@ module floo_nw_chimney #(
   narrow_meta_buf_t narrow_ar_buf_hdr_in, narrow_ar_buf_hdr_out;
   wide_meta_buf_t wide_aw_buf_hdr_in, wide_aw_buf_hdr_out;
   wide_meta_buf_t wide_ar_buf_hdr_in, wide_ar_buf_hdr_out;
+
+  // Var to use for virtual channeling
+  logic  floo_req_arb_req_out, floo_req_arb_gnt_in;
+  logic  floo_wide_arb_req_out, floo_wide_arb_gnt_in;
+
+  logic floo_req_virt_in_valid, floo_wide_virt_in_valid;
+  logic floo_req_virt_out_ready, floo_wide_virt_out_ready;
 
   ///////////////////////
   //  Spill registers  //
@@ -549,18 +560,41 @@ module floo_nw_chimney #(
     assign axi_wide_red_op_queue = '0;
   end
 
+  //////////////////
+  // FLIT VC MUX  //
+  //////////////////
+
+  // Mux the output flits to their corresponding vc if requested
+  if(EnCollNarrowVirtChannel) begin : gen_add_virt_channel_for_narrow_req_out
+    assign floo_req_o.ready[0] = floo_req_virt_out_ready;
+    assign floo_req_o.ready[1] = floo_req_virt_out_ready;
+    assign floo_req_virt_in_valid = floo_req_i.valid[0] | floo_req_i.valid[1];
+  end else begin : gen_wide_no_virt_channel_out
+    assign floo_req_virt_in_valid = floo_req_i.valid;
+    assign floo_req_o.ready = floo_req_virt_out_ready;
+  end
+
+  if(EnCollWideVirtChannel) begin : gen_add_virt_channel_for_wide_req_out
+    assign floo_wide_o.ready[0] = floo_wide_virt_out_ready;
+    assign floo_wide_o.ready[1] = floo_wide_virt_out_ready;
+    assign floo_wide_virt_in_valid = floo_wide_i.valid[0] | floo_wide_i.valid[1];
+  end else begin : gen_narrow_no_virt_channel_out
+    assign floo_wide_virt_in_valid = floo_wide_i.valid;
+    assign floo_wide_o.ready = floo_wide_virt_out_ready;
+  end
+
   if (ChimneyCfgN.CutRsp && ChimneyCfgW.CutRsp) begin : gen_rsp_cuts
     spill_register #(
       .T ( floo_req_chan_t )
     ) i_narrow_data_req_arb (
       .clk_i,
       .rst_ni,
-      .data_i     ( floo_req_i.req      ),
-      .valid_i    ( floo_req_i.valid    ),
-      .ready_o    ( floo_req_o.ready    ),
-      .data_o     ( floo_req_in         ),
-      .valid_o    ( floo_req_in_valid   ),
-      .ready_i    ( floo_req_out_ready  )
+      .data_i     ( floo_req_i.req          ),
+      .valid_i    ( floo_req_virt_in_valid  ),
+      .ready_o    ( floo_req_virt_out_ready ),
+      .data_o     ( floo_req_in             ),
+      .valid_o    ( floo_req_in_valid       ),
+      .ready_i    ( floo_req_out_ready      )
     );
 
     spill_register #(
@@ -581,24 +615,24 @@ module floo_nw_chimney #(
     ) i_wide_data_req_arb (
       .clk_i,
       .rst_ni,
-      .data_i     ( floo_wide_i.wide    ),
-      .valid_i    ( floo_wide_i.valid   ),
-      .ready_o    ( floo_wide_o.ready   ),
-      .data_o     ( floo_wide_in        ),
-      .valid_o    ( floo_wide_in_valid  ),
-      .ready_i    ( floo_wide_out_ready )
+      .data_i     ( floo_wide_i.wide          ),
+      .valid_i    ( floo_wide_virt_in_valid   ),
+      .ready_o    ( floo_wide_virt_out_ready  ),
+      .data_o     ( floo_wide_in              ),
+      .valid_o    ( floo_wide_in_valid        ),
+      .ready_i    ( floo_wide_out_ready       )
     );
 
   end else begin : gen_no_rsp_cuts
     assign floo_req_in = floo_req_i.req;
     assign floo_rsp_in = floo_rsp_i.rsp;
     assign floo_wide_in = floo_wide_i.wide;
-    assign floo_req_in_valid = floo_req_i.valid;
+    assign floo_req_in_valid = floo_req_virt_in_valid;
     assign floo_rsp_in_valid = floo_rsp_i.valid;
-    assign floo_wide_in_valid = floo_wide_i.valid;
-    assign floo_req_o.ready = floo_req_out_ready;
+    assign floo_wide_in_valid = floo_wide_virt_in_valid;
+    assign floo_req_virt_out_ready = floo_req_out_ready;
     assign floo_rsp_o.ready = floo_rsp_out_ready;
-    assign floo_wide_o.ready = floo_wide_out_ready;
+    assign floo_wide_virt_out_ready = floo_wide_out_ready;
   end
 
   logic narrow_aw_out_queue_valid, narrow_aw_out_queue_ready;
@@ -1377,8 +1411,8 @@ module floo_nw_chimney #(
     .data_i   ( floo_req_arb_in       ),
     .ready_o  ( floo_req_arb_gnt_out  ),
     .data_o   ( floo_req_o.req        ),
-    .ready_i  ( floo_req_i.ready      ),
-    .valid_o  ( floo_req_o.valid      )
+    .ready_i  ( floo_req_arb_gnt_in   ),
+    .valid_o  ( floo_req_arb_req_out  )
   );
 
   floo_wormhole_arbiter #(
@@ -1405,9 +1439,36 @@ module floo_nw_chimney #(
     .data_i   ( floo_wide_arb_in      ),
     .ready_o  ( floo_wide_arb_gnt_out ),
     .data_o   ( floo_wide_o.wide      ),
-    .ready_i  ( floo_wide_i.ready     ),
-    .valid_o  ( floo_wide_o.valid     )
+    .ready_i  ( floo_wide_arb_gnt_in  ),
+    .valid_o  ( floo_wide_arb_req_out )
   );
+
+  ////////////////////
+  // FLIT VC DEMUX  //
+  ////////////////////
+
+  // Mux the output flits to their corresponding vc if requested
+  // TODO (raroth): Potential deadlock if both stream originates from the same chimney!
+  //                @ Redution this isn't a problem we ca either schedule an normal unicast or "collective"
+  //                cast but not both at the same time.
+  // Mux the output flits to their corresponding vc if requested
+  if(EnCollNarrowVirtChannel) begin : gen_add_virt_channel_for_narrow_req_in
+    assign floo_req_o.valid[0] = (floo_req_o.req.generic.hdr.commtype != Unicast) ? 1'b0 : floo_req_arb_req_out;
+    assign floo_req_o.valid[1] = (floo_req_o.req.generic.hdr.commtype != Unicast) ? floo_req_arb_req_out : 1'b0;
+    assign floo_req_arb_gnt_in = (floo_req_o.req.generic.hdr.commtype != Unicast) ? floo_req_i.ready[1] : floo_req_i.ready[0];
+  end else begin : gen_narrow_no_virt_channel_in
+    assign floo_req_o.valid = floo_req_arb_req_out;
+    assign floo_req_arb_gnt_in = floo_req_i.ready;
+  end
+
+  if(EnCollWideVirtChannel) begin : gen_add_virt_channel_for_wide_req_in
+    assign floo_wide_o.valid[0] = (floo_wide_o.wide.generic.hdr.commtype != Unicast) ? 1'b0 : floo_wide_arb_req_out;
+    assign floo_wide_o.valid[1] = (floo_wide_o.wide.generic.hdr.commtype != Unicast) ? floo_wide_arb_req_out : 1'b0;
+    assign floo_wide_arb_gnt_in = (floo_wide_o.wide.generic.hdr.commtype != Unicast) ? floo_wide_i.ready[1] : floo_wide_i.ready[0];
+  end else begin : gen_wide_no_virt_channel_in
+    assign floo_wide_o.valid = floo_wide_arb_req_out;
+    assign floo_wide_arb_gnt_in = floo_wide_i.ready;
+  end
 
   ////////////////////
   // FLIT UNPACKER  //
@@ -1663,7 +1724,7 @@ module floo_nw_chimney #(
   // ASSERTIONS  //
   /////////////////
 
-  // Check that the Address Width of the narrow and Wide interfaces are the same
+  // Check that the Address Width of the wide and Wide interfaces are the same
   `ASSERT_INIT(AddrWidthMatch, AxiCfgN.AddrWidth == AxiCfgW.AddrWidth)
 
   // `CutRsp` of the narrow and wide config must be the same
@@ -1682,18 +1743,41 @@ module floo_nw_chimney #(
                 ChimneyCfgW.RRoBType == floo_pkg::NoRoB))
 
   // Data and valid signals must be stable/asserted when ready is low
-  `ASSERT(NarrowReqOutStableValid, floo_req_o.valid &&
-                                   !floo_req_i.ready |=> floo_req_o.valid)
-  `ASSERT(NarrowReqInStableValid, floo_req_i.valid &&
-                                  !floo_req_o.ready |=> floo_req_i.valid)
+  if(EnCollNarrowVirtChannel) begin
+    `ASSERT(NarrowReqOutStableValidCh0, floo_req_o.valid[0] &&
+                                   !floo_req_i.ready[0] |=> floo_req_o.valid[0])
+    `ASSERT(NarrowReqInStableValidCh0, floo_req_i.valid[0] &&
+                                    !floo_req_o.ready[0] |=> floo_req_i.valid[0])
+    `ASSERT(NarrowReqOutStableValidCh1, floo_req_o.valid[1] &&
+                                     !floo_req_i.ready[1] |=> floo_req_o.valid[1])
+    `ASSERT(NarrowReqInStableValidCh1, floo_req_i.valid[1] &&
+                                    !floo_req_o.ready[1] |=> floo_req_i.valid[1])
+  end else begin
+    `ASSERT(NarrowReqOutStableValid, floo_req_o.valid &&
+                                     !floo_req_i.ready |=> floo_req_o.valid)
+    `ASSERT(NarrowReqInStableValid, floo_req_i.valid &&
+                                    !floo_req_o.ready |=> floo_req_i.valid)
+  end
+
   `ASSERT(NarrowRspOutStableValid, floo_rsp_o.valid &&
                                    !floo_rsp_i.ready |=> floo_rsp_o.valid)
   `ASSERT(NarrowRspInStableValid, floo_rsp_i.valid &&
                                   !floo_rsp_o.ready |=> floo_rsp_i.valid)
-  `ASSERT(WideOutStableValid, floo_wide_o.valid &&
-                              !floo_wide_i.ready |=> floo_wide_o.valid)
-  `ASSERT(WideStableValid, floo_wide_i.valid &&
-                           !floo_wide_o.ready |=> floo_wide_i.valid)
+  if(EnCollWideVirtChannel) begin
+    `ASSERT(WideOutStableValidCh0, floo_wide_o.valid[0] &&
+                                   !floo_wide_i.ready[0] |=> floo_wide_o.valid[0])
+    `ASSERT(WideInStableValidCh0, floo_wide_i.valid[0] &&
+                                    !floo_wide_o.ready[0] |=> floo_wide_i.valid[0])
+    `ASSERT(WideOutStableValidCh1, floo_wide_o.valid[1] &&
+                                     !floo_wide_i.ready[1] |=> floo_wide_o.valid[1])
+    `ASSERT(WideInStableValidCh1, floo_wide_i.valid[1] &&
+                                    !floo_wide_o.ready[1] |=> floo_wide_i.valid[1])
+  end else begin
+    `ASSERT(WideOutStableValid, floo_wide_o.valid &&
+                                !floo_wide_i.ready |=> floo_wide_o.valid)
+    `ASSERT(WideStableValid, floo_wide_i.valid &&
+                            !floo_wide_o.ready |=> floo_wide_i.valid)
+  end
 
   // Network Interface cannot accept any B and R responses if `En*MgrPort` are not set
   `ASSERT(NoNarrowMgrPortBResponse, ChimneyCfgN.EnMgrPort || !(floo_rsp_in_valid &&
@@ -1727,5 +1811,20 @@ module floo_nw_chimney #(
 
   // We do not support reduction without multicast
   `ASSERT_INIT(NoWideReductionWithoutMulticast, (RouteCfg.EnMultiCast || !(EnWideCollectiveOperation | EnNarrowCollectiveOperation)))
+
+  // Assertion to cover some invalid virtual channel flow's
+  // One flit !will! be overwritten in the virtual channel mux
+  if(EnCollNarrowVirtChannel) begin
+    `ASSERT(NarrowVirtChannelInError, !(floo_req_i.valid[0] & floo_req_i.valid[1]))
+  end
+  if(EnCollWideVirtChannel) begin
+    `ASSERT(WideVirtChannelInError, !(floo_wide_i.valid[0] & floo_wide_i.valid[1]))
+  end
+  if(EnCollNarrowVirtChannel) begin
+    `ASSERT(NarrowVirtChannelOutError, !(floo_req_o.valid[0] & floo_req_o.valid[1]))
+  end
+  if(EnCollWideVirtChannel) begin
+    `ASSERT(WideVirtChannelOutError, !(floo_wide_o.valid[0] & floo_wide_o.valid[1]))
+  end
 
 endmodule
