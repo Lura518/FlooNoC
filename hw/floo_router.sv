@@ -185,6 +185,7 @@ module floo_router
 
   // Vars to separate reductions with only one member
   logic [NumInput-1:0][NumVirtChannels-1:0][NumInput-1:0] red_expected_in_route, red_expected_in_route_loopback;
+  logic [NumInput-1:0][NumVirtChannels-1:0] red_onehot_expected_in;
   logic [NumInput-1:0][NumVirtChannels-1:0] red_single_member;
   logic [NumInput-1:0][NumVirtChannels-1:0] red_mask_loopback_port;
 
@@ -212,7 +213,15 @@ module floo_router
 
         // onehot decoding of the input direction
         // bypass the reduction if only one input member is selected (if none is selected then bypass too [should never occure but to avoid deadlocks])
-        assign red_single_member[in][v] = $onehot(red_expected_in_route_loopback[in][v]) | (&(~red_expected_in_route_loopback[in][v]));
+        cc_onehot #(
+          .Width        (NumInput)
+        ) i_onehot_decoder (
+          .d_i          (red_expected_in_route_loopback[in][v]),
+          .is_onehot_o  (red_onehot_expected_in[in][v])
+        );
+
+        assign red_single_member[in][v] = red_onehot_expected_in[in][v] | (&(~red_expected_in_route_loopback[in][v]));
+        //assign red_single_member[in][v] = $onehot(red_expected_in_route_loopback[in][v]) | (&(~red_expected_in_route_loopback[in][v]));
 
         // Generate the handshaking
         stream_demux #(

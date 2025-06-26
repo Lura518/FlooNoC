@@ -89,8 +89,7 @@ package alu_pkg;
 endpackage
 
 module floo_reduction_alu import floo_pkg::*; #(
-  parameter int unsigned ID = 0,
-  parameter bit          DEBUG_PRINT_TRACE      = 1'b0
+  parameter int unsigned ID = 0
 ) (
   input  logic              clk_i,
   input  logic              rst_ni,
@@ -195,56 +194,6 @@ module floo_reduction_alu import floo_pkg::*; #(
 
   // Assign the output signal of the ALU
   assign alu_resp_data_o = alu_out.result;
-
-  // Print the Status info
-  if(DEBUG_PRINT_TRACE) begin
-    int cnt_in;
-    int cnt_out;
-    initial begin
-      cnt_in = 0;
-      cnt_out = 0;
-      while(1) begin
-        @(posedge clk_i);
-        // Print the incoming operation
-        if((alu_req_valid_i == 1'b1) && (alu_req_ready_o == 1'b1)) begin
-          $display($time, " [ALU %1d - Itr %1d] > ALU Ops: [%h, %h] ALU Op: %s", ID, cnt_in, alu_req_op1_i, alu_req_op2_i, genOpAlu(alu_req_type_i));
-          cnt_in = cnt_in + 1;
-        end
-
-        // Print Result / Status of alu
-        if((alu_resp_valid_o == 1'b1) && (alu_resp_ready_i == 1'b1)) begin
-          $display($time, " [ALU %1d - Itr %1d] > ALU Result: %h", ID, cnt_out, alu_out.result);
-          cnt_out = cnt_out + 1;
-        end
-      end
-    end
-
-    function string genOpAlu (reduction_op_e type_reduction);
-      string retVal;
-      retVal = "";
-      unique casez (type_reduction)
-        (floo_pkg::A_Add) : begin
-          retVal = "Atomic Add";
-        end
-        (floo_pkg::A_Mul) : begin
-          retVal = "Atmoic Mul";
-        end                
-        (floo_pkg::A_Max_S) : begin
-          retVal = "Atomic Max S";
-        end
-        (floo_pkg::A_Max_U) : begin
-          retVal = "Atomic Max U";
-        end
-        (floo_pkg::A_Min_S) : begin
-          retVal = "Atomic Min S";
-        end
-        (floo_pkg::A_Min_U) : begin
-          retVal = "Atomic Min U";
-        end
-      endcase
-      return retVal;
-    endfunction
-  end
 
 endmodule
 

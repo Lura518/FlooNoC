@@ -151,15 +151,19 @@ module floo_reduction_arbiter import floo_pkg::*;
 
   // If we support more than the inital parallel reduction
   if(EnParallelReduction) begin
-    if(data_i[input_sel].hdr.reduction_op == SelectAW) begin
-      // AW flit dedected
-      assign data_o = data_forward_flit;
-    end else if(data_i[input_sel].hdr.reduction_op == CollectB) begin
-      // Collect B flit dedected
-      assign data_o = data_collectB;
-    end else if(data_i[input_sel].hdr.reduction_op == LSBAnd) begin
-      // LSB And flit dedected
-      assign data_o = data_LSBAnd;
+    always_comb begin
+      // Assign inital value
+      data_o = '0;
+      if(data_i[input_sel].hdr.reduction_op == SelectAW) begin
+        // AW flit dedected
+        data_o = data_forward_flit;
+      end else if(data_i[input_sel].hdr.reduction_op == CollectB) begin
+        // Collect B flit dedected
+        data_o = data_collectB;
+      end else if(data_i[input_sel].hdr.reduction_op == LSBAnd) begin
+        // LSB And flit dedected
+        data_o = data_LSBAnd;
+      end
     end
   end else begin
     assign data_o = data_collectB;
