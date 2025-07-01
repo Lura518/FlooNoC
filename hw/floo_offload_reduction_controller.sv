@@ -545,6 +545,10 @@ if(SIMPLE) begin : gen_simple_controller
         req_header = '0;
         req_output_mask = '0;
 
+        // Set intial value for the op found signal
+        f_op1_found = 1'b0;
+        f_op2_found = 1'b0;
+
         // Iterate over all inputs to found two operands
         for(int i = 0; i < NumRoutes; i++) begin
             // Find the first operand
