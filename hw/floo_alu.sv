@@ -312,7 +312,7 @@ assign adder_res_32 = operands_32[1] + operands_32[0];
 always_comb begin
   mul_res_32 = '0;
   for (int i = 0; i < 32; i++) begin
-    mul_res_32 = (|((operands_32[0] >> i) & 1)) ? mul_res_32 ^ (operands_32[1] << i) : mul_res_32;
+    mul_res_32 = (|((operands_32[0] >> i) & 1)) ? mul_res_32 + (operands_32[1] << i) : mul_res_32;
   end
 end
 

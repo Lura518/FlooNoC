@@ -337,6 +337,9 @@ if(GENERIC || STALLING) begin : gen_controller_stalling_generic
             // Reset Var for the loop
             f_op1_found = 1'b0;
             f_op2_found = 1'b0;
+            tmp_sel_input = '0;
+            tmp_sel_part_res_buf = '0;
+            tmp_part_res_mux = '0;
 
             // 1. Stage: Accept new Data into the Buffer if we have free space and a valid entry
             if(buffer_d[i].f_valid == 1'b0) begin

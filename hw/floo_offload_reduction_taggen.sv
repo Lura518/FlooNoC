@@ -30,8 +30,9 @@
 `include "common_cells/registers.svh"
 
 module floo_offload_reduction_taggen #(
-    parameter int unsigned NumRoutes            = 1,
-    parameter type TAG_T                        = logic
+    parameter int unsigned NumRoutes                    = 1,
+    parameter type TAG_T                                = logic,
+    parameter int unsigned RdTagBits                    = 1
 ) (
     input  logic                                clk_i,
     input  logic                                rst_ni,
@@ -47,10 +48,9 @@ module floo_offload_reduction_taggen #(
 );
 
 /* All local parameter */
-localparam int unsigned  MaxNumberofOutstandingRed = 8;
+localparam int unsigned  MaxNumberofOutstandingRed = 1 << RdTagBits;
 
 /* All Typedef Vars */
-
 
 /* Variable declaration */
 logic [NumRoutes-1:0] inc_pending;

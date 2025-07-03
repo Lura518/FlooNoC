@@ -207,7 +207,8 @@ if(GENERIC == 1'b1) begin : gen_tag_generation
   // For each incoming element generate the corresponding tag.
   floo_offload_reduction_taggen #(
       .NumRoutes        (NumRoutes),
-      .TAG_T            (tag_t)
+      .TAG_T            (tag_t),
+      .RdTagBits        (RdTagBits)
   ) i_gen_tag (
       .clk_i            (clk_i),
       .rst_ni           (rst_ni),
@@ -347,7 +348,7 @@ if(GENERIC == 1'b1) begin : gen_fifo_for_tag
   fifo_v3 #(
       .FALL_THROUGH     (1'b0),
       .dtype            (tag_t),
-      .DEPTH            (RdPipelineDepth+1)
+      .DEPTH            (RdPipelineDepth+2)
   ) i_fifo_mask_parallel_fpu (
       .clk_i            (clk_i),
       .rst_ni           (rst_ni),
@@ -370,7 +371,7 @@ if((GENERIC == 1'b1) || (STALLING == 1'b1)) begin : gen_fifo_for_mask
   fifo_v3 #(
       .FALL_THROUGH     (1'b0),
       .dtype            (mask_t),
-      .DEPTH            (RdPipelineDepth+1)
+      .DEPTH            (RdPipelineDepth+2)
   ) i_fifo_mask_parallel_fpu (
       .clk_i            (clk_i),
       .rst_ni           (rst_ni),
