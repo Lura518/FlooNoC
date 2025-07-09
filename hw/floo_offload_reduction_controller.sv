@@ -213,7 +213,7 @@ if(STALLING) begin : gen_stalling
             .flush_i        (flush_i),
             .src_valid_i    (head_fifo_valid_i[i]),
             .src_ready_o    (head_fifo_ready_o[i]),
-            .stalling_i     (fully_red_valid_i & fully_red_ready_o),
+            .stalling_i     (final_valid_o & final_ready_i),
             .dst_valid_o    (stalling_valid[i]),
             .dst_ready_i    (stalling_ready[i])
         );
