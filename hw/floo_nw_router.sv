@@ -64,7 +64,9 @@ module floo_nw_router #(
   /// Parameter for the wide reduction configuration
   parameter floo_pkg::reduction_cfg_t RdWideCfg     = '0,
   /// Parameter for the narrow reduction configuration
-  parameter floo_pkg::reduction_cfg_t RdNarrowCfg   = '0
+  parameter floo_pkg::reduction_cfg_t RdNarrowCfg   = '0,
+  /// Paramter for the response router
+  parameter floo_pkg::reduction_cfg_t RdRespCfg     = '0
 ) (
   input  logic   clk_i,
   input  logic   rst_ni,
@@ -225,13 +227,6 @@ localparam axi_narrow_b_chan_t NarrowBMask = '{resp: 2'b11, default: '0};
     rsvd: '0
   };
 
-  // Generate a local reduction config because the SupportAXI / Loopback option
-  // is encode inside.
-  localparam reduction_cfg_t RdNarrowResponseCfg = '{
-    RdSupportAxi: 1'b1,
-    RdSupportLoopback: 1'b1,
-    default: '0
-  };
   floo_router #(
     .NumInput             ( NumInputs               ),
     .NumOutput            ( NumOutputs              ),
@@ -254,7 +249,7 @@ localparam axi_narrow_b_chan_t NarrowBMask = '{resp: 2'b11, default: '0};
     .payload_t            ( floo_rsp_payload_t      ),
     .NarrowRspMask        ( floo_rsp_generic_flit_t'(NarrowBFlitMask.payload) ),
     .WideRspMask          ( floo_rsp_generic_flit_t'(WideBFlitMask.payload)   ),
-    .RdCfg                ( RdNarrowResponseCfg     ),
+    .RdCfg                ( RdRespCfg               ),
     .AxiCfgOffload        ( '0                      ),
     .AxiCfgParallel       ( AxiCfgN                 )
   ) i_rsp_floo_router (
