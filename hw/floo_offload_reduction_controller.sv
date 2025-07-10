@@ -223,7 +223,7 @@ mask_t  metadata_out_mask;
 // Var used for the simple controller
 flit_t req_header;
 mask_t req_output_mask;
-logic simple_reduction_ongoing;
+logic simple_reduction_ongoing_n;
 
 /* Module Declaration */
 
@@ -593,10 +593,13 @@ if(SIMPLE) begin : gen_simple_controller
         req_output_mask = '0;
 
         // Set intial value for the op found signal
+        tmp_sel_input = '0;
         f_op1_found = 1'b0;
         f_op2_found = 1'b0;
 
-        // Iterate over all inputs to found two operands
+        // 1.1 Stage: Search for schedulable operands when:
+        // - Input is valid
+        // - Currently no operation locked in
         for(int i = 0; i < NumRoutes; i++) begin
             // Find the first operand
             if((stalling_valid[i] == 1'b1) && (f_op1_found == 1'b0) && (locked_d == 1'b0)) begin
@@ -604,9 +607,8 @@ if(SIMPLE) begin : gen_simple_controller
                 tmp_sel_input[0] = i;
                 // lock the first op
                 f_op1_found = 1'b1;
-            end
             // Find the second operand
-            if((stalling_valid[i] == 1'b1) && (f_op1_found == 1'b1) && (f_op2_found == 1'b0) && (locked_d == 1'b0)) begin
+            end else if((stalling_valid[i] == 1'b1) && (f_op1_found == 1'b1) && (f_op2_found == 1'b0) && (locked_d == 1'b0)) begin
                 // Select the appropriate input (No Mux in simple case)
                 tmp_sel_input[1] = i;
                 // lock the second op
@@ -614,7 +616,7 @@ if(SIMPLE) begin : gen_simple_controller
             end
         end
 
-        // 2.3 Stage: Schedule an operation if:
+        // 1.2 Stage: Schedule an operation if:
         //  - Both operands are found
         //  - No locked in operation
         if( (f_op1_found == 1'b1) && 
@@ -627,12 +629,12 @@ if(SIMPLE) begin : gen_simple_controller
             selected_input_d = tmp_sel_input;
         end
 
-        // Set all signals
+        // 1.3 Stage: Forward the data to the FPU or the bypass
         if(locked_d == 1'b1) begin
+            // Handle the case for a bypassable flit
             if(stalling_flit[selected_input_d[0]].flit.hdr.reduction_op == floo_pkg::R_Select) begin
-                // We need to wait until no W reduction is ongoing otherwise a reordering could 
-                // occure (b.c. AW bypasses the reduction)
-                if(simple_reduction_ongoing == 1'b1) begin
+                // Stall sending the bypass until the pipeline is empty to avoid reordering
+                if(simple_reduction_ongoing_n) begin
                     // AW flit found - direct forward to the output
                     bypass_valid = 1'b1;
                     // Forward the entire AW flit
@@ -642,9 +644,9 @@ if(SIMPLE) begin : gen_simple_controller
                     stalling_ready = (stalling_flit[selected_input_d[0]].input_exp & {(NumRoutes){bypass_ready}});
                 end
             end else begin
-                // W flit found
+                // Iterate over all operands and prepare the data
+                stalling_ready = '0;
                 for(int i = 0; i < 2; i++) begin
-                    // Set the data
                     if(RdSupportAxi) begin
                         operand_data_o[i].data = extractAXIWdata(stalling_flit[selected_input_d[i]].flit);
                     end
@@ -661,6 +663,16 @@ if(SIMPLE) begin : gen_simple_controller
                 // Forward the output selection mask
                 req_output_mask = stalling_flit[selected_input_d[0]].output_dir;
             end
+        end
+
+        // 1.4 Stage: Release lock if operation was accepted
+        if((reduction_req_valid_i == 1'b1) && (reduction_req_ready_i == 1'b1)) begin
+            locked_d = 1'b0;
+        end
+
+        // 1.5 Stage: Release lock if bypass was accepted
+        if((bypass_valid == 1'b1) && (bypass_ready == 1'b1)) begin
+            locked_d = 1'b0;
         end
     end
 end else begin
@@ -719,7 +731,7 @@ end else begin
         .flush_i          (flush_i),
         .testmode_i       (1'b0),
         .full_o           (),
-        .empty_o          (simple_reduction_ongoing),
+        .empty_o          (simple_reduction_ongoing_n),
         .usage_o          (),
         .data_i           (req_header),
         .push_i           (reduction_req_valid_i & reduction_req_ready_i),  // push mask on active fpu req hs
