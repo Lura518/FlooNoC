@@ -58,18 +58,9 @@ module floo_router
   parameter type         RdOperation_t        = logic,
   /// Data type of the offload reduction
   parameter type         RdData_t             = logic,
-  /// Depth and Fallthrough Configuration of the input Fifo
-  parameter bit          RdFifoFallThrough    = 1'b0,
-  parameter int unsigned RdFifoDepth          = 2,
-  /// Depth of the offload reduction pipeline
-  parameter int unsigned RdPipelineDepth      = 3,
-  /// Reduction controller configuration options
-  parameter int unsigned RdControllerComplex  = 2,
-  parameter int unsigned RdPartialBufferSize  = 2,
-  parameter int unsigned RdTagBits            = 4,
-  parameter bit          RdSupportLoopback    = 1'b0,
-  /// AXI dependent parameter
-  parameter bit          RdSupportAxi         = 1'b1,
+  /// Parameter for the reduction configuration
+  parameter reduction_cfg_t RdCfg             = '0,
+  /// AXI configurations
   parameter axi_cfg_t    AxiCfgOffload        = '0,
   parameter axi_cfg_t    AxiCfgParallel       = '0
 ) (
@@ -208,7 +199,7 @@ module floo_router
         );
 
         // If the option RdSupportLoopback is not set then the logic doesn't expect a flit from the Eject port!
-        assign red_mask_loopback_port[in][v] = ((route_mask[in][v][Eject] == 1'b1) && (red_expected_in_route[in][v][Eject] == 1'b1) && (!RdSupportLoopback));
+        assign red_mask_loopback_port[in][v] = ((route_mask[in][v][Eject] == 1'b1) && (red_expected_in_route[in][v][Eject] == 1'b1) && (!RdCfg.RdSupportLoopback));
         assign red_expected_in_route_loopback[in][v] = (red_mask_loopback_port[in][v]) ? (red_expected_in_route[in][v] & (~(1 << Eject))) : red_expected_in_route[in][v];
 
         // onehot decoding of the input direction
@@ -219,9 +210,7 @@ module floo_router
           .d_i          (red_expected_in_route_loopback[in][v]),
           .is_onehot_o  (red_onehot_expected_in[in][v])
         );
-
         assign red_single_member[in][v] = red_onehot_expected_in[in][v] | (&(~red_expected_in_route_loopback[in][v]));
-        //assign red_single_member[in][v] = $onehot(red_expected_in_route_loopback[in][v]) | (&(~red_expected_in_route_loopback[in][v]));
 
         // Generate the handshaking
         stream_demux #(
@@ -256,13 +245,7 @@ module floo_router
       .id_t                       (id_t),
       .RdData_t                   (RdData_t),
       .RdOperation_t              (RdOperation_t),
-      .RdFifoDepth                (RdFifoDepth),
-      .RdFifoFallThrough          (RdFifoFallThrough),
-      .RdPipelineDepth            (RdPipelineDepth),
-      .RdPartialBufferSize        (RdPartialBufferSize),
-      .RdTagBits                  (RdTagBits),
-      .RdContollerComplexity      (RdControllerComplex),
-      .RdSupportAxi               (RdSupportAxi),
+      .RdCfg                      (RdCfg),
       .AxiCfg                     (AxiCfgOffload)
     ) i_offload_reduction_logic (
       .clk_i                      (clk_i),
@@ -385,19 +368,22 @@ module floo_router
       end else begin : gen_red_arb
         // Arbiter to be instantiated for reduction operations.
         // Repsonses from a multicast request are also treated as reductions.
+        // TODO: fix these flags here - RdCfg... is used (mostly) in the offload
+        //       reduction rather the parallel reduction - maybe we could make
+        //       another configuration?
         floo_output_arbiter #(
-          .NumRoutes            ( NumInput            ),
-          .NumSlaveRoutes       ( localNumInputs-NumInput ),
-          .EnParallelReduction  ( EnParallelReduction ),
-          .flit_t               ( flit_t              ),
-          .hdr_t                ( hdr_t               ),
-          .payload_t            ( payload_t           ),
-          .NarrowRspMask        ( NarrowRspMask       ),
-          .WideRspMask          ( WideRspMask         ),
-          .id_t                 ( id_t                ),
-          .RdSupportLoopback    ( RdSupportLoopback   ),
-          .RdSupportAxi         ( RdSupportAxi        ),
-          .AxiCfg               ( AxiCfgParallel      )
+          .NumRoutes            ( NumInput                    ),
+          .NumSlaveRoutes       ( localNumInputs-NumInput     ),
+          .EnParallelReduction  ( EnParallelReduction         ),
+          .flit_t               ( flit_t                      ),
+          .hdr_t                ( hdr_t                       ),
+          .payload_t            ( payload_t                   ),
+          .NarrowRspMask        ( NarrowRspMask               ),
+          .WideRspMask          ( WideRspMask                 ),
+          .id_t                 ( id_t                        ),
+          .RdSupportLoopback    ( RdCfg.RdSupportLoopback     ),
+          .RdSupportAxi         ( RdCfg.RdSupportAxi          ),
+          .AxiCfg               ( AxiCfgParallel              )
         ) i_output_arbiter (
           .clk_i,
           .rst_ni,
@@ -505,8 +491,8 @@ module floo_router
   // When en the parallel reduction we also need to enable the "normal" reduction
   `ASSERT_INIT(SystemConfig, !EnParallelReduction || EnReduction)
   // Currently the AXI support must be enabled
-  `ASSERT_INIT(SupportAXI, RdSupportAxi)
+  `ASSERT_INIT(SupportAXI, !EnOffloadReduction || RdCfg.RdSupportAxi)
   // We can not support Loopback when the option is not enabled
-  `ASSERT_INIT(SupportLoopback, !(RdSupportLoopback && NoLoopback))
+  `ASSERT_INIT(SupportLoopback, !(RdCfg.RdSupportLoopback && NoLoopback))
 
 endmodule

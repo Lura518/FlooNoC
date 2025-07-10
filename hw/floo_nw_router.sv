@@ -11,68 +11,60 @@
 /// Wrapper of a multi-link router for narrow and wide links
 module floo_nw_router #(
   /// Config of the narrow AXI interfaces (see floo_pkg::axi_cfg_t for details)
-  parameter floo_pkg::axi_cfg_t AxiCfgN       = '0,
+  parameter floo_pkg::axi_cfg_t AxiCfgN             = '0,
   /// Config of the wide AXI interfaces (see floo_pkg::axi_cfg_t for details)
-  parameter floo_pkg::axi_cfg_t AxiCfgW       = '0,
+  parameter floo_pkg::axi_cfg_t AxiCfgW             = '0,
   /// Routing algorithm
-  parameter floo_pkg::route_algo_e RouteAlgo  = floo_pkg::XYRouting,
+  parameter floo_pkg::route_algo_e RouteAlgo        = floo_pkg::XYRouting,
   /// Number of input/output ports
-  parameter int unsigned NumRoutes            = 0,
+  parameter int unsigned NumRoutes                  = 0,
   /// Number of input ports
-  parameter int unsigned NumInputs            = NumRoutes,
+  parameter int unsigned NumInputs                  = NumRoutes,
   /// Number of output ports
-  parameter int unsigned NumOutputs           = NumRoutes,
+  parameter int unsigned NumOutputs                 = NumRoutes,
   /// Input buffer depth
-  parameter int unsigned InFifoDepth          = 0,
+  parameter int unsigned InFifoDepth                = 0,
   /// Output buffer depth
-  parameter int unsigned OutFifoDepth         = 0,
+  parameter int unsigned OutFifoDepth               = 0,
   /// Disable illegal connections in router
   /// (only applies for `RouteAlgo == XYRouting`)
-  parameter bit          XYRouteOpt           = 1'b1,
+  parameter bit          XYRouteOpt                 = 1'b1,
   /// Disables loopback connections
-  parameter bit          NoLoopback           = 1'b1,
+  parameter bit          NoLoopback                 = 1'b1,
   /// Enable multicast feature
-  parameter bit          EnMultiCast          = 1'b0,
+  parameter bit          EnMultiCast                = 1'b0,
   /// Enable parallel reduction feature
-  parameter bit          EnParallelReduction  = 1'b0,
+  parameter bit          EnParallelReduction        = 1'b0,
   /// Enable offload reduction feature
-  parameter bit          EnOffloadWideReduction   = 1'b0,
+  parameter bit          EnOffloadWideReduction     = 1'b0,
   /// Enable offload reduction on the narrow port
-  parameter bit          EnOffloadNarrowReduction = 1'b0,
+  parameter bit          EnOffloadNarrowReduction   = 1'b0,
   /// Node ID type
-  parameter type id_t                         = logic,
+  parameter type id_t                               = logic,
   /// Header type
-  parameter type hdr_t                        = logic,
+  parameter type hdr_t                              = logic,
   /// Number of rules in the route table
   /// (only used for `RouteAlgo == IdTable`)
-  parameter int unsigned NumAddrRules         = 0,
+  parameter int unsigned NumAddrRules               = 0,
   /// Address rule type
   /// (only used for `RouteAlgo == IdTable`)
-  parameter type addr_rule_t                  = logic,
+  parameter type addr_rule_t                        = logic,
   /// Floo `req` link type
-  parameter type floo_req_t                   = logic,
+  parameter type floo_req_t                         = logic,
   /// Floo `rsp` link type
-  parameter type floo_rsp_t                   = logic,
+  parameter type floo_rsp_t                         = logic,
   /// Floo `wide` link type
-  parameter type floo_wide_t                  = logic,
-  /// Offload reduction parameter (Only Wide Link)
+  parameter type floo_wide_t                        = logic,
   /// Possible operation for offloading (must match type in header)
-  parameter type         RdWideOperation_t    = logic,
-  parameter type         RdNarrowOperation_t  = logic,
+  parameter type RdWideOperation_t                  = logic,
+  parameter type RdNarrowOperation_t                = logic,
   /// Data type of the offload reduction
-  parameter type         RdWideData_t         = logic,
-  parameter type         RdNarrowData_t       = logic,
-  /// Depth and Fallthrough Configuration of the input Fifo
-  parameter bit          RdFifoFallThrough    = 1'b0,
-  parameter int unsigned RdFifoDepth          = 2,
-  /// Depth of the offload reduction pipeline
-  parameter int unsigned RdPipelineDepth      = 3,
-  /// Reduction controller configuration options
-  parameter int unsigned RdControllerComplex  = 2,
-  parameter int unsigned RdPartialBufferSize  = 2,
-  parameter int unsigned RdTagBits            = 4,
-  parameter bit          RdSupportAxi         = 1'b1,
-  parameter bit          RdSupportLoopback    = 1'b0
+  parameter type RdWideData_t                       = logic,
+  parameter type RdNarrowData_t                     = logic,
+  /// Parameter for the wide reduction configuration
+  parameter floo_pkg::reduction_cfg_t RdWideCfg     = '0,
+  /// Parameter for the narrow reduction configuration
+  parameter floo_pkg::reduction_cfg_t RdNarrowCfg   = '0
 ) (
   input  logic   clk_i,
   input  logic   rst_ni,
@@ -192,14 +184,7 @@ module floo_nw_router #(
     .WideRspMask          ( WideBFlitMask.payload     ),
     .RdOperation_t        ( RdNarrowOperation_t       ),
     .RdData_t             ( RdNarrowData_t            ),
-    .RdFifoFallThrough    ( RdFifoFallThrough         ),
-    .RdFifoDepth          ( RdFifoDepth               ),
-    .RdPipelineDepth      ( RdPipelineDepth           ),
-    .RdControllerComplex  ( RdControllerComplex       ),
-    .RdPartialBufferSize  ( RdPartialBufferSize       ),
-    .RdTagBits            ( RdTagBits                 ),
-    .RdSupportAxi         ( RdSupportAxi              ),
-    .RdSupportLoopback    ( RdSupportLoopback         ),
+    .RdCfg                ( RdNarrowCfg               ),
     .AxiCfgOffload        ( AxiCfgN                   ),
     .AxiCfgParallel       ( AxiCfgN                   )
   ) i_req_floo_router (
@@ -240,8 +225,13 @@ localparam axi_narrow_b_chan_t NarrowBMask = '{resp: 2'b11, default: '0};
     rsvd: '0
   };
 
-  // Enable reduction for the B response.
-  // Disable multicast for the B response.
+  // Generate a local reduction config because the SupportAXI / Loopback option
+  // is encode inside.
+  localparam reduction_cfg_t RdNarrowResponseCfg = '{
+    RdSupportAxi: 1'b1,
+    RdSupportLoopback: 1'b1,
+    default: '0
+  };
   floo_router #(
     .NumInput             ( NumInputs               ),
     .NumOutput            ( NumOutputs              ),
@@ -264,8 +254,7 @@ localparam axi_narrow_b_chan_t NarrowBMask = '{resp: 2'b11, default: '0};
     .payload_t            ( floo_rsp_payload_t      ),
     .NarrowRspMask        ( floo_rsp_generic_flit_t'(NarrowBFlitMask.payload) ),
     .WideRspMask          ( floo_rsp_generic_flit_t'(WideBFlitMask.payload)   ),
-    .RdSupportAxi         ( RdSupportAxi            ),
-    .RdSupportLoopback    ( RdSupportLoopback       ),
+    .RdCfg                ( RdNarrowResponseCfg     ),
     .AxiCfgOffload        ( '0                      ),
     .AxiCfgParallel       ( AxiCfgN                 )
   ) i_rsp_floo_router (
@@ -311,14 +300,7 @@ localparam axi_narrow_b_chan_t NarrowBMask = '{resp: 2'b11, default: '0};
     .hdr_t                ( hdr_t                     ),
     .RdOperation_t        ( RdWideOperation_t         ),
     .RdData_t             ( RdWideData_t              ),
-    .RdFifoFallThrough    ( RdFifoFallThrough         ),
-    .RdFifoDepth          ( RdFifoDepth               ),
-    .RdPipelineDepth      ( RdPipelineDepth           ),
-    .RdControllerComplex  ( RdControllerComplex       ),
-    .RdPartialBufferSize  ( RdPartialBufferSize       ),
-    .RdTagBits            ( RdTagBits                 ),
-    .RdSupportAxi         ( RdSupportAxi              ),
-    .RdSupportLoopback    ( RdSupportLoopback         ),
+    .RdCfg                ( RdWideCfg                 ),
     .AxiCfgOffload        ( AxiCfgW                   ),
     .AxiCfgParallel       ( '0                        )
   ) i_wide_req_floo_router (

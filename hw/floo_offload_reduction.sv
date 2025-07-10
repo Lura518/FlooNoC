@@ -52,27 +52,10 @@ module floo_offload_reduction import floo_pkg::*; #(
   parameter type         RdData_t               = logic,
   /// Possible reduction operation(s)
   parameter type         RdOperation_t          = logic,
-  /// Depth / Falltrough of the internal input FIFO
-  parameter int unsigned RdFifoDepth            = 2,
-  parameter bit          RdFifoFallThrough      = 1'b1,
-  /// Pipeline depth of the external reduction logic
-  parameter int unsigned RdPipelineDepth        = 2,
-  /// Partial buffer size for partial results
-  /// used in Generic / Stalling configuration
-  parameter int unsigned RdPartialBufferSize    = 2,
-  /// Number of bits used for the reduction Bits
-  /// used in Generic configuration
-  parameter int unsigned RdTagBits              = 4,
-  /// Defines the controller complexity 
-  /// (0 = Simple / 1 = Stalling / 2 = Generic)
-  parameter int unsigned RdContollerComplexity  = 2,
-  /// Defines if the underlying protocol is AXI
-  /// Required to extract the data from the flit
-  parameter bit          RdSupportAxi           = 1'b1,
+  /// Parameter for the reduction configuration
+  parameter reduction_cfg_t RdCfg               = '0,
   /// Axi Configuration
-  parameter axi_cfg_t    AxiCfg                 = '0,
-  /// Define if we support a bypass or not (for AXI AW header)
-  parameter bit          RdEnableBypass         = 1'b1
+  parameter axi_cfg_t    AxiCfg                 = '0
 ) (
   /// Control Inputs
   input  logic                                  clk_i,
@@ -104,16 +87,16 @@ module floo_offload_reduction import floo_pkg::*; #(
 /* All local parameter */
 
 // Set the complexity of the Controller
-localparam bit GENERIC  = (RdContollerComplexity == 2) ? 1'b1 : 1'b0;
-localparam bit SIMPLE   = (RdContollerComplexity == 0) ? 1'b1 : 1'b0;
-localparam bit STALLING = (RdContollerComplexity == 1) ? 1'b1 : 1'b0;
+localparam bit GENERIC  = (RdCfg.RdControllConf == ControllerGeneric) ? 1'b1 : 1'b0;
+localparam bit SIMPLE   = (RdCfg.RdControllConf == ControllerSimple) ? 1'b1 : 1'b0;
+localparam bit STALLING = (RdCfg.RdControllConf == ControllerStalling) ? 1'b1 : 1'b0;
 
 /* All Typedef Vars */
 // Index Variable to control the crossbar and the partial buffer
-typedef logic [cf_math_pkg::idx_width(RdPartialBufferSize)-1:0] part_res_idx_t;
+typedef logic [cf_math_pkg::idx_width(RdCfg.RdPartialBufferSize)-1:0] part_res_idx_t;
 
 // Generate the types for the mask, the tag and the red_data
-typedef logic [RdTagBits-1:0] tag_t;
+typedef logic [RdCfg.RdTagBits-1:0] tag_t;
 typedef logic [NumRoutes-1:0] mask_t;
 
 // dfferent combination between flit / data / tag / mask for the main data path
@@ -206,8 +189,8 @@ logic ctrl_demux;
 part_res_idx_t [1:0] ctrl_sel_buffer_idx;
 
 // Spyglass signals from the partial result buffer
-tag_t [RdPartialBufferSize-1:0] spyglass_tag;
-logic [RdPartialBufferSize-1:0] spyglass_valid;
+tag_t [RdCfg.RdPartialBufferSize-1:0] spyglass_tag;
+logic [RdCfg.RdPartialBufferSize-1:0] spyglass_valid;
 
 /* Module Declaration */
 
@@ -217,7 +200,7 @@ if(GENERIC == 1'b1) begin : gen_tag_generation
   floo_offload_reduction_taggen #(
       .NumRoutes        (NumRoutes),
       .TAG_T            (tag_t),
-      .RdTagBits        (RdTagBits)
+      .RdTagBits        (RdCfg.RdTagBits)
   ) i_gen_tag (
       .clk_i            (clk_i),
       .rst_ni           (rst_ni),
@@ -233,11 +216,11 @@ end
 
 // Fifo's for all inputs to ack the incoming data
 // and to reduce unnecessary backpressure into the system.
-if(RdFifoDepth > 0) begin : gen_input_fifo
+if(RdCfg.RdFifoDepth > 0) begin : gen_input_fifo
   for (genvar i = 0; i < NumRoutes; i++) begin : gen_routes
       stream_fifo #(
-        .FALL_THROUGH           (RdFifoFallThrough),
-        .DEPTH                  (RdFifoDepth),
+        .FALL_THROUGH           (RdCfg.RdFifoFallThrough),
+        .DEPTH                  (RdCfg.RdFifoDepth),
         .T                      (flit_in_out_dir_tag_t)
       ) i_in_fifo_generic (
         .clk_i                  (clk_i),
@@ -264,8 +247,8 @@ end
 // Controller which runs the hole reduction
 floo_offload_reduction_controller #(
   .NumRoutes                    (NumRoutes),
-  .RdPartialBufferSize          (RdPartialBufferSize),
-  .RdPipelineDepth              (RdPipelineDepth),
+  .RdPartialBufferSize          (RdCfg.RdPartialBufferSize),
+  .RdPipelineDepth              (RdCfg.RdPipelineDepth),
   .RdData_t                     (RdData_t),
   .RdOperation_t                (RdOperation_t),
   .tag_t                        (tag_t),
@@ -280,9 +263,9 @@ floo_offload_reduction_controller #(
   .GENERIC                      (GENERIC),
   .SIMPLE                       (SIMPLE),
   .STALLING                     (STALLING),
-  .RdSupportAxi                 (RdSupportAxi),
+  .RdSupportAxi                 (RdCfg.RdSupportAxi),
   .AxiCfg                       (AxiCfg),
-  .RdEnableBypass               (RdEnableBypass)
+  .RdEnableBypass               (RdCfg.RdEnableBypass)
 ) i_reduction_controller (
   .clk_i                        (clk_i),
   .rst_ni                       (rst_ni),
@@ -365,7 +348,7 @@ if(GENERIC == 1'b1) begin : gen_fifo_for_tag
   fifo_v3 #(
       .FALL_THROUGH     (1'b0),
       .dtype            (tag_t),
-      .DEPTH            (RdPipelineDepth+2)
+      .DEPTH            (RdCfg.RdPipelineDepth+2)
   ) i_fifo_mask_parallel_fpu (
       .clk_i            (clk_i),
       .rst_ni           (rst_ni),
@@ -395,7 +378,7 @@ if((GENERIC == 1'b1) || (STALLING == 1'b1)) begin : gen_fifo_for_mask
   fifo_v3 #(
       .FALL_THROUGH     (1'b0),
       .dtype            (mask_t),
-      .DEPTH            (RdPipelineDepth+2)
+      .DEPTH            (RdCfg.RdPipelineDepth+2)
   ) i_fifo_mask_parallel_fpu (
       .clk_i            (clk_i),
       .rst_ni           (rst_ni),
@@ -469,7 +452,7 @@ if((GENERIC == 1'b1) || (STALLING == 1'b1)) begin : gen_partial_result_buffer
   floo_offload_reduction_buffer #(
       .data_mask_tag_t    (red_data_mask_tag_t),
       .tag_t              (tag_t),
-      .NElements          (RdPartialBufferSize),
+      .NElements          (RdCfg.RdPartialBufferSize),
       .NOutPorts          (2)
   ) i_buf_part_result (
       .clk_i              (clk_i),
@@ -498,9 +481,9 @@ end
 // The fp reduction supports up to 6 operands
 `ASSERT_INIT(Number_Input_Route_Invalid, !(NumRoutes > 6))
 // Currently we only support reduction extension with an pipeline depth of at least 1 cycle as otherwise loops could be generated!
-`ASSERT_INIT(ReductionPipelineDepth, !(RdPipelineDepth == 0))
+`ASSERT_INIT(ReductionPipelineDepth, !(RdCfg.RdPipelineDepth == 0))
 // The size needs to be at least 2 for the partial buffer for the generic / stalling proceessor
-`ASSERT_INIT(PartialBufferSize, !((GENERIC | STALLING) && (RdPartialBufferSize < 2)))
+`ASSERT_INIT(PartialBufferSize, !((GENERIC | STALLING) && (RdCfg.RdPartialBufferSize < 2)))
 // We can only run GENERIC or SIMPLE or STALLING
 `ASSERT_INIT(Invalid_Configuration_1, !(GENERIC & SIMPLE))
 `ASSERT_INIT(Invalid_Configuration_2, !(STALLING & SIMPLE))
