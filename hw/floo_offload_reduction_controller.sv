@@ -639,7 +639,7 @@ if(SIMPLE) begin : gen_simple_controller
                     bypass_flit.flit = stalling_flit[selected_input_d[0]].flit;
                     bypass_flit.mask = stalling_flit[selected_input_d[0]].output_dir;
                     // Forward the ready signal to all involved inputs
-                    stalling_ready = (stalling_flit[selected_input_d[0]].final_mask & {(NumRoutes){bypass_ready}});
+                    stalling_ready = (stalling_flit[selected_input_d[0]].input_exp & {(NumRoutes){bypass_ready}});
                 end
             end else begin
                 // W flit found
