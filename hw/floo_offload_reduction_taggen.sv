@@ -4,45 +4,96 @@
 //
 // Raphael Roth <raroth@student.ethz.ch>
 
-// This module generates an TAG for each reduction element (short element) that enters the reduction. If elements needs to 
-// be reduced together then they have an equal tag. The main goal behind the idea of tag is that this allows to separate the
-// complexity we want to support from the rest of the problem. The rest of the system is dumb as it just combines all elements
-// with the same tag. Depending on the system restriction we can have a more sophiticated tag generator or not. In the most general
-// case we woould support reduction of out-of-order arriving elements (NOT SUPPORTED!)
+// To be able to have multiple infligth reduction at the same time we need to track each element
+// belonging to an individal reduction. Only elements with equal tag will be reduced together.
+// This separation into a seperate module allows to reduce the tracking effort inside the rest
+// of the system. Depending on the system restriction we can have a more sophiticated tag 
+// generator implementation. In the most general case we would support reduction of 
+// out-of-order arriving elements (NOT SUPPORTED!)
 
 // Current Implementation:
-// We want to support the most general input pattern without the overhead of out-of-order tracking.
-// The main problem is that the tag can never be out of sync in respect for all inputs. If one element is excpected from a certain input
-// direction then it is only allowed to increment the Tag if the element actually arrives (and not sooner), therefor we have to count the
-// pending elements on each input. However, if no element is excpected from this direction then the Tag should be incremented immidiatly.
+// We want to support the most general input pattern without the overhead of out-of-order 
+// tracking. The main problem is that the tag can never be out of sync in respect for all 
+// inputs. If one element is excpected from a certain input direction then it is only allowed 
+// to increment the Tag if the element actually arrives (and not sooner!) therefor we count
+// pending elements on each input. If no element is excpected from one direction then the Tag 
+// should be incremented immidiatly.
+
+// Example:
+// We have 3 different inputs (A,B & C) for two reductions:
+// - Reduction 1 with 2 (1.1 + 1.2) Flits from dir A & B
+// - Reduction 2 with 3 (2.1 + 2.2 + 2.3) Flits from dir B & C
+
+// Cycle 0  A > Flit 1.1A arrives --> gets Tag 1 --> internal Tag set to 2
+//          B > Flit expected but not here yet --> internal Tag remains 1 (pending counter = 1)
+//          C > No Flit expected --> internal Tag set to 2
+//
+// Cycle 1  A > Flit 1.2A arrives --> gets Tag 2 --> internal Tag set to 3
+//          B > Flit 1.1B arrives --> gets Tag 1 --> internal Tag set to 2 (pending counter = 1)
+//          C > No Flit expected --> internal Tag set to 3
+//
+// Cycle 2  None
+//
+// Cycle 3  A > No Flit --> internal Tag remains 3
+//          B > Flit 1.2B arrives --> gets Tag 2 --> internal Tag set to 3 (pending counter = 0)
+//          C > No Flit --> internal Tag remains 3
+//
+// Cycle 4  None
+//
+// Cycle 5  A > No Flit expected --> internal Tag set to 4
+//          B > Flit 2.1B arrives --> gets Tag 3 --> internal Tag set to 4
+//          C > Flit 2.1C arrives --> gets Tag 3 --> internal Tag set to 4 
+//
+// Cycle 6  None*
+//
+// Cycle 7  A > No Flit expected --> internal Tag set to 5
+//          B > Flit 2.2B arrives --> gets Tag 4 --> internal Tag set to 5
+//          C > Flit expected but not here yet --> internal Tag remains 4 (pending counter = 1)
+//
+// Cycle 8  A > No Flit expected --> internal Tag set to 6
+//          B > Flit 2.3B arrives --> gets Tag 5 --> internal Tag set to 6
+//          C > Flit expected but not here yet --> internal Tag remains 4 (pending counter = 2)
+//
+// Cycle 9  A > No Flit --> internal Tag remains 6
+//          B > No Flit --> internal Tag remains 6
+//          C > Flit 2.2C arrives --> gets Tag 4 --> internal Tag set to 5 (pending counter = 1)
+//
+// Cycle 10 A > No Flit --> internal Tag remains 6
+//          B > No Flit --> internal Tag remains 6
+//          C > Flit 2.3C arrives --> gets Tag 5 --> internal Tag set to 6 (pending counter = 0)
+//
+// * At this point we have finished reduction threfor all internal tag are required to be on the
+//   same internal level because we do not know from where the next flits will arrive from.
 
 // Restriction:
-// - With the current implementation it is impossible to handle two different incoming reduction request in the same cycle.
-//   It should work if a pending elements incomes together with an new reduction request.
+// - With the current implementation it is impossible to handle two different incoming reduction
+//   (different target address) request in the same cycle. However it should work if a pending 
+//   elements incomes together with an new reduction request (Not tested!).
 // - All inputs needs to be strictly in order.
 
-// TODO: Open Issues:
-// - The taggen modul can not handle backpressure well. The problem is that if one input is backpressured then it is still
-//   possible for another to increment the tag. This leads to an AXI violation and should be avoided.
-//   Solution: Introduce both ready & valid signal into the module and add FF @ The End of the modul.
-//   --> Differentiat between only valid asserted - e.g. locked in and valid handshake
+// Open Points:
+// - Check if the module works with backpressure or not. Maybe necessary to introduce output 
+//   stage if valid is asserted but not accepted by ready yet.
+// - Evaluate the target adress to allow for more than one incoming reduction at the same time
 
 `include "common_cells/registers.svh"
 
 module floo_offload_reduction_taggen #(
+    /// Number of input routes
     parameter int unsigned NumRoutes                    = 1,
+    /// Typedef for the Tag
     parameter type TAG_T                                = logic,
+    /// Bit-Width of the TAG_T
     parameter int unsigned RdTagBits                    = 1
 ) (
+    /// Control Inputs
     input  logic                                clk_i,
     input  logic                                rst_ni,
     input  logic                                flush_i,
-    
     /// All Input directions
     input logic [NumRoutes-1:0][NumRoutes-1:0]  mask_i,
     input logic [NumRoutes-1:0]                 valid_i,
     input logic [NumRoutes-1:0]                 ready_i,
-
     /// Generated Tag for each output
     output TAG_T [NumRoutes-1:0]                tag_o
 );
@@ -71,11 +122,11 @@ logic new_reduction_incoming;
 
 /* Module Declaration */
 
+// determint if we have a active valid handshake
 assign handshake = valid_i & ready_i;
 
+// Generate Credit Counter once per input
 for (genvar i = 0; i < NumRoutes; i++) begin : gen_pending_tracker
-
-    // Generate Credit Counter once per input
     credit_counter #(
         .NumCredits         (MaxNumberofOutstandingRed),
         .InitCreditEmpty    (1'b1)
@@ -95,14 +146,19 @@ end
 // Generat the mask - if no pending incoming req then forward the mask, otherwise set to 0!
 for (genvar i = 0; i < NumRoutes; i++) begin
     for (genvar j = 0; j < NumRoutes; j++) begin
-        assign gen_mask_with_pending[j][i] = ((outstanding_pending[i] == 1'b0) && (handshake[i] == 1'b1)) ? mask_i[i][j] : 1'b0;
+        assign gen_mask_with_pending[j][i] = 
+                ((outstanding_pending[i] == 1'b0) && (handshake[i] == 1'b1)) ? mask_i[i][j] : 1'b0;
     end
 end
 
-// The general mask indicates if the router excpect an element on this input. The or-connection between all inputs is to receive the
-// first handshake on any interface (Here is also the problem when two different reduction request arrive at the same time: the generated
-// mask would be the combination of the two and the tag would be mixed up). The mask is only included in the general mask if no pending
-// element is on this input as all pending elements are from the earlier request and the tag was already incremented for all other inputs.
+// The general mask indicates if the router excpect an element on this input. The or-connection 
+// between all inputs is to receive the first handshake on any interface availble.
+// The mask is only taken into consideration in the general mask if no pending element exists on
+// the input as the strict in-order-requiremnt determines that the next incoming element
+// belongs to an "old" reduction.
+
+// Here is also the problematic part when two different reductions arrive at the same time:
+// the generated mask would be the combination of the two and the tag would be mixed up!
 
 // Generate the General Mask (OR-Connect all 1 bit / 2 bit etc.)
 for (genvar i = 0; i < NumRoutes; i++) begin : gen_reduce_bitwise_outer
@@ -110,7 +166,6 @@ for (genvar i = 0; i < NumRoutes; i++) begin : gen_reduce_bitwise_outer
 end
 
 // Generate the Signal where we indicate if a new reduction is incoming
-// (the handshake OR should be redundant as the general mask is always 0 if the corr. handshake[i] is not set)
 assign new_reduction_incoming = (|handshake) & (|general_mask);
 
 always_comb begin
@@ -125,8 +180,9 @@ always_comb begin
         // Increment the Tag if we have a valid handshake and the bit in the general mask is set
         // (Element expected from this input and element is actually there)
         if((general_mask[i] == 1'b1) && (handshake[i] == 1'b1) && (new_reduction_incoming == 1'b1)) begin
-            // Edge case: On another input we have new incoming request but we have also a pending one with the same maskon this input
-            // therefore the received entry is the pending one (handled further down) and not the "new" one - so increment the pending one
+            // Edge case: On another input we have new incoming request but we have also a pending one 
+            // with the same mask on this input therefore the received entry is the pending one 
+            // (handled further down) and not the "new" one - so increment the pending one
             if(outstanding_pending[i] == 1'b1) begin
                 inc_pending[i] = 1'b1;
             end else begin
@@ -180,7 +236,6 @@ always_comb begin
     end
 end
 
-
 // Assign the output tag
 assign tag_o = tag_q;
 
@@ -189,148 +244,3 @@ assign tag_o = tag_q;
 
 /* ASSERTION Checks */
 endmodule
-
-
-/*
-// Small Testbench to verify the TAG Generator
-module tb_fp_reduction_taggen #();
-
-/* All local parameter * /
-localparam int unsigned  NumberInputs = 5;
-localparam int unsigned  CycleSim = 6;
-time ApplDelay = 100ps;
-time AcqDelay = 500ps;
-
-/* All Typedef Vars * /
-typedef logic [3:0] test_tag_t;          // Test tag generation
-typedef logic [NumberInputs-1:0] mask_t;
-
-/* Variable declaration * /
-
-// Control Var
-logic clk;
-logic rst_n;
-clk_rst_gen #(.ClkPeriod(10ns), .RstClkCycles(1)) i_clk_rst_gen (.clk_o(clk), .rst_no(rst_n));
-
-// Input Variable
-mask_t [NumberInputs-1:0] in_mask;
-logic [NumberInputs-1:0] in_handshake;
-
-// Output Variable
-test_tag_t [NumberInputs-1:0] out_tag;
-
-mask_t [5][6] input_data;
-logic [5][6] input_hs;
-
-/* Module Declaration * /
-
-floo_fp_reduction_taggen #(
-    .NumRoutes                  (NumberInputs),
-    .TAG_T                      (test_tag_t)
-) i_dut (
-    .clk_i                      (clk),
-    .rst_ni                     (rst_n),
-    .flush_i                    (1'b0),
-    .mask_i                     (in_mask),
-    .valid_i                    (valid_i),
-    .ready_i                    (ready_i),
-    .tag_o                      (out_tag)
-);
-
-int cnt_cycle;
-
-/* Describe the Testbench Here * /
-
-    // Feed the input with the 
-    initial begin
-        /*
-        // Define the input data
-        input_data[0] = {5'b11011, 5'b11011, 5'b11011, 5'b11011, 5'b11011, 5'b11011};
-        input_data[1] = {5'b11011, 5'b11011, 5'b11011, 5'b11011, 5'b11011, 5'b11011};
-        input_data[2] = {5'b00000, 5'b00000, 5'b00000, 5'b00000, 5'b00000, 5'b00000};
-        input_data[3] = {5'b11011, 5'b11011, 5'b11011, 5'b11011, 5'b11011, 5'b11011};
-        input_data[4] = {5'b11011, 5'b11011, 5'b11011, 5'b11011, 5'b11011, 5'b11011};
-
-        /*
-        // Fully Pipeline
-        input_hs[0] = {1'b1, 1'b1, 1'b0, 1'b0, 1'b1, 1'b0};
-        input_hs[1] = {1'b1, 1'b1, 1'b0, 1'b0, 1'b1, 1'b0};
-        input_hs[2] = {1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0};
-        input_hs[3] = {1'b1, 1'b1, 1'b0, 1'b0, 1'b1, 1'b0};
-        input_hs[4] = {1'b1, 1'b1, 1'b0, 1'b0, 1'b1, 1'b0};
-        * /
-
-        // Fully Pipeline But [1]&[3] Element shifted
-        input_hs[0] = {1'b1, 1'b1, 1'b0, 1'b0, 1'b1, 1'b0};
-        input_hs[1] = {1'b0, 1'b1, 1'b1, 1'b0, 1'b0, 1'b1};
-        input_hs[2] = {1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0};
-        input_hs[3] = {1'b0, 1'b0, 1'b1, 1'b1, 1'b0, 1'b1};
-        input_hs[4] = {1'b1, 1'b1, 1'b0, 1'b0, 1'b1, 1'b0};
-        * /
-
-        input_data[0] = {5'b11011, 5'b11011, 5'b00000, 5'b10101, 5'b10101, 5'b00000};
-        input_data[1] = {5'b00000, 5'b11011, 5'b11011, 5'b00000, 5'b00000, 5'b00000};
-        input_data[2] = {5'b00000, 5'b00000, 5'b00000, 5'b00000, 5'b10101, 5'b10101};
-        input_data[3] = {5'b11011, 5'b00000, 5'b11011, 5'b00000, 5'b00000, 5'b00000};
-        input_data[4] = {5'b11011, 5'b11011, 5'b00000, 5'b10101, 5'b00000, 5'b10101};
-
-        input_hs[0] = 6'b110110;
-        input_hs[1] = 6'b011000;
-        input_hs[2] = 6'b000011;
-        input_hs[3] = 6'b101000;
-        input_hs[4] = 6'b110101;
-
-        // Init all Data here
-        in_mask = '0;
-        in_handshake = '0;
-        cnt_cycle = 0;
-
-        // Wait for 5 cycle
-        repeat (5) @(posedge clk);
-
-        // Provide Data here
-        while(1) begin
-            @(posedge clk);
-            #(ApplDelay);
-
-            for(int i = 0; i < NumberInputs;i++) begin
-                in_mask[i] = input_data[i][cnt_cycle];
-                in_handshake[i] = input_hs[i][cnt_cycle];
-            end
-            cnt_cycle = cnt_cycle + 1;
-
-            if(cnt_cycle > CycleSim) begin
-                $stop();
-            end
-        end
-    end
-
-    // Plot the output tag generated
-    initial begin
-        while(1) begin
-            @(posedge clk);
-
-            for(int i = 0; i < NumberInputs; i++) begin
-                // Generate the binary rep of the input mask
-                if(in_handshake[i] == 1'b1) begin
-                    $display($time, " HS on IF %d: Gen Mask %s Tag %d", i, genBitRep(in_mask[i]), out_tag[i]);
-                end
-            end
-        end
-    end
-
-    function string genBitRep (logic [NumberInputs-1:0] in);
-		string retVal;
-        retVal = "B";
-        for(int i = 0; i < NumberInputs; i++) begin
-            if(in[NumberInputs-1-i] == 1'b1) begin
-                retVal = {retVal, "1"};
-            end else begin
-                retVal = {retVal, "0"};
-            end
-        end
-        return retVal;
-	endfunction
-
-endmodule
-*/

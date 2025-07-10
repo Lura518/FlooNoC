@@ -1,15 +1,13 @@
-// Copyright 2022 ETH Zurich and University of Bologna.
+// Copyright 2025 ETH Zurich and University of Bologna.
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 //
 // Raphael Roth <raroth@student.ethz.ch>
 
 // This module creates a buffer in which all elements can be accessed from the outside.
-// With an Index the currently output element can be changed.
-// To reduce the overall number of bit required a tag is used.
-
-// The selection for each output port is designed as valid signal. Only if the signal is set to 1
-// then the data from the buffer are applied to the output.
+// The module is implemented as a 0-cycle buffer where the current output is selected
+// by an index input. This index is guarded with an valid signal so that the data only
+// change if an valid is applied.
 
 `include "common_cells/registers.svh"
 `include "common_cells/assertions.svh"
@@ -26,24 +24,21 @@ module floo_offload_reduction_buffer #(
     /// Dependent parameters, DO NOT OVERRIDE!
     parameter integer LogNElements                      = (NElements > 32'd1) ? unsigned'($clog2(NElements)) : 1'b1
 ) (
+    /// Control Inputs
     input  logic                                        clk_i,
     input  logic                                        rst_ni,
     input  logic                                        flush_i,
-    
     /// All Input Connections
     input  data_mask_tag_t                              inp_data_i,
     input  logic                                        inp_valid_i,
     output logic                                        inp_ready_o,
-
     /// All Output Connections
     output data_mask_tag_t [NOutPorts-1:0]              oup_data_o,
     output logic  [NOutPorts-1:0]                       oup_valid_o,
     input  logic  [NOutPorts-1:0]                       oup_ready_i,
-
     /// Selections
     input  logic [NOutPorts-1:0]                        inp_sel_valid_i,
     input  logic [NOutPorts-1:0][LogNElements-1:0]      inp_sel_i,
-
     /// Spyglass to all entries of the Buffer
     output logic [NElements-1:0]                        spyglass_valid_o, 
     output tag_t [NElements-1:0]                        spyglass_tag_o
@@ -51,6 +46,7 @@ module floo_offload_reduction_buffer #(
 
 /* All Typedef Vars */
 
+// a line of the buffer
 typedef struct packed {
     data_mask_tag_t data;
     logic f_valid;
@@ -124,7 +120,7 @@ end
 // Store the Buffer
 `FF(buffer_q, buffer_d, '0, clk_i, rst_ni)
 
-// We require at least a size of 2 for the partial result buffer (otherwisedeadlock)
+// We require at least a size of 2 for the partial result buffer (otherwise deadlock potential)
 `ASSERT_INIT(WrongNumberOfElements, !(NElements < 2))
 
 

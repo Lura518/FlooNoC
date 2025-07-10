@@ -1,12 +1,11 @@
-// Copyright 2022 ETH Zurich and University of Bologna.
+// Copyright 2025 ETH Zurich and University of Bologna.
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 //
 // Raphael Roth <raroth@student.ethz.ch>
 
-// This alu is designed to be used as an easy offload unit for the offload reduction.
-
-// Open Points:
+// This 32 bit alu is designed to be used as an easy offload unit for the offload reduction.
+// It should resemble the FPU from openhw group and could potentially be extended.
 
 `include "common_cells/assertions.svh"
 
@@ -88,9 +87,8 @@ package alu_pkg;
 
 endpackage
 
-module floo_reduction_alu import floo_pkg::*; #(
-  parameter int unsigned ID = 0
-) (
+// Wrapper incl. decoder for the ALU
+module floo_reduction_alu import floo_pkg::*; #() (
   input  logic              clk_i,
   input  logic              rst_ni,
   input  logic              flush_i,
@@ -109,6 +107,8 @@ module floo_reduction_alu import floo_pkg::*; #(
   /* All local parameter */
 
   /* All Typedef Vars */
+
+  // Typedef for the input of the ALU
   typedef struct packed {
     logic [1:0][63:0]         operands;
     alu_pkg::alu_operation_e  op;
@@ -116,6 +116,7 @@ module floo_reduction_alu import floo_pkg::*; #(
     logic                     vectorial_op;
   } alu_in_t;
 
+  // Typedef for the output of the ALU
   typedef struct packed {
     logic [63:0] result;
   } alu_out_t;
@@ -197,6 +198,7 @@ module floo_reduction_alu import floo_pkg::*; #(
 
 endmodule
 
+// ALU Module which should similar to the fpnew module from the openhw group
 module floo_alu_top #(
   parameter type          tag_t = logic,
   parameter bit           CutOutput = 1'b1,
@@ -224,10 +226,11 @@ module floo_alu_top #(
   input  logic                                out_ready_i
 );
 
-// Implement a simple ALU
-// Open Points: Vector Mode is currently not supported!
-
 /* All local parameter */
+
+/* All Typedef Vars */
+
+// Typedefs for the cut to avoid a cut for everything
 typedef struct packed {
   logic [NUM_OPERANDS-1:0][WIDTH-1:0] operands;
   alu_pkg::alu_operation_e op;
@@ -242,11 +245,9 @@ typedef struct packed {
   tag_t tag;
 } cut_output_t;
 
-/* All Typedef Vars */
-
 /* Variable declaration */
 
-// Delayed input vars
+// Vars after the input cut
 logic [NUM_OPERANDS-1:0][WIDTH-1:0]   operands_q;
 alu_pkg::alu_operation_e op_q;
 alu_pkg::alu_int_format_e fmt_q;
@@ -255,7 +256,7 @@ tag_t tag_q;
 logic in_valid_q;
 logic in_ready_q;
 
-// output var infront of cut
+// Vars with the result infront of the output cut
 logic [WIDTH-1:0] result_d;
 alu_pkg::alu_status_t status_d;
 tag_t tag_d;
@@ -274,7 +275,6 @@ logic [31:0] max_res_32;
 
 // Input Cut to split the ALU from the rest of the system
 if (CutInput == 1'b1) begin
-  // introduce cut at input of ALU
   spill_register_flushable #(
     .T                  (cut_input_t),
     .Bypass             (1'b0)
@@ -353,7 +353,6 @@ always_comb begin : result_mux
 end
 
 // Sign extend the 32 Bit result
-// TODO (raroth): What happens if result is 32Bit unsigned? Take a look!
 assign result_d = {{32{res_32[31]}},res_32};
 
 // Bypass tag & handshake
@@ -362,8 +361,8 @@ assign out_valid_d = in_valid_q;
 assign in_ready_q = out_ready_d;
 assign status_d.is_zero = ~ (|res_32); // Or Connect all signal and invert to determin if we have a 0 signal
 
+// introduce cut at output of ALU
 if (CutOutput == 1'b1) begin
-  // introduce cut at input of ALU
   spill_register_flushable #(
     .T                  (cut_output_t),
     .Bypass             (1'b0)

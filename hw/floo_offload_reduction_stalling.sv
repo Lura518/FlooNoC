@@ -1,12 +1,13 @@
-// Copyright 2022 ETH Zurich and University of Bologna.
+// Copyright 2025 ETH Zurich and University of Bologna.
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 //
 // Raphael Roth <raroth@student.ethz.ch>
 
-// This module allows to stall a valid / ready handshake.
-// When the ready signal of the dst is asserted then the valid signal is deasserted.
-// However, the ready signal to the source is only asserted on a external signal input!
+// This module allows to stall a valid / ready handshake by delaying the ready signal
+// to the source. Any valid signal acknowledged on the destination side will lead to
+// the deassertion of said valid signal. The handshake to the source can be controlled
+// by an external stalling signal.
 
 // The stalling signal is not preemtive e.g. it needs to be asserted in either the cycle where
 // the dst handshake occurs or after. A stalling signal befor will be ignored!
@@ -18,23 +19,21 @@ module floo_offload_reduction_stalling #() (
     input  logic        clk_i,
     input  logic        rst_ni,
     input  logic        flush_i,
-    
     /// All Input Connections
     input  logic        src_valid_i,
     output logic        src_ready_o,
-
     /// Stop stalling the valid signal
     input logic         stalling_i,
-
     /// All Output Connections
     output logic        dst_valid_o,
     input logic         dst_ready_i
-
 );
 
 /* All local parameter */
 
 /* All Typedef Vars */
+
+// Var to track the state of the handshake
 typedef enum logic [1:0] { 
     s_idle = 2'd0,
     s_forward = 2'd1,
@@ -86,6 +85,7 @@ always_comb begin
         end
     endcase
 
+    // Reset the state
     if(flush_i == 1'b1) begin
         sm_d = s_idle;
         dst_valid_o = 1'b0;

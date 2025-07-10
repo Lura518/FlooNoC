@@ -1,39 +1,43 @@
-// Copyright 2022 ETH Zurich and University of Bologna.
+// Copyright 2025 ETH Zurich and University of Bologna.
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 //
-// Chen Wu
 // Raphael Roth <raroth@student.ethz.ch>
 
-// This module handles any offloaded reduction. It encompass only the control logic therefor allowing a selection of reduction logic.
-// For an overview of the generated Hardware see the (personal) documentation of raroth (@pisoc3: /scratch2/msc25f10/documentation)
-// As it is indepent of the reduction operation the type needs to be provided from the outside by RdOperation_t. The selected operation we want
-// to support for now are defined under floo_pkg.sv @ floo_pkg::reduction_op_e!
-
-// The main design goal was to allow a fully pipelined operation e.g. if out inputs provide each cycle a new elements to reduce
-// then the underlying reduction utilization should be 100% during the reduction.
-
-// One of the main design consideration was to use a tag based system. All elements which hold the same tag needs to be reduced together.
-// This allows to separate the tag generation and the reduction logic. The reduction logic only needs to compare tag and if they
-// match then reduce them. The tag generation is done on the input and is system independent. To reduce the size of the crossbar / multiplexer
-// the tag is provided directly to the output by the controller.
-
-// Additionally ever element gets an mask which indicates which elements are already reduced in the red_data. This allows for an easy
-// comparison for the final result e.g. if it is equal to the input mask then all required inputs are reduced together.
-
-// Currently we support three different complexity of reduction, see the controller for more dcumentation.
+// This module describes the datapath of the offload reduction. The controller is part of the
+// "floo_offload_reduction_buffer.sv" module and describes there.
+// The selected operation we want to support for now are defined under floo_pkg::reduction_op_e!
+//
+// The main design goal was to allow a fully pipelined operation e.g. if out inputs provide each
+// cycle a new elements to reduce then the underlying reduction utilization should be 100% during 
+// the reduction. However as this required more tracking effort we support other modes too.
+// When we reduce elements from at tleast three different inputs we are required to have a
+// partial result buffer for intermidiate results.
+//
+// Overall three modes are supported: Generic, Stalling, Simple, see the controller for more
+// documentation.
+//
+// For the generic system we require a tag based system to allow tracking of each elements as we
+// elementsfrom different reduction iteration in-fligth. All elements which hold the same tag
+// need to be reduced together. This allows to separate the tag generation and the reduction logic.
+//
+// Additionally ever element gets an mask which indicates which elements are already reduced in 
+// the reduction_data as reduction with more than two inputs require two (or more) iterations.
+// The mask allows for an easy comparison for the final result e.g. if it is equal to the input 
+// mask then all required inputs are reduced together.
+//
+// For the full documentation see the Masterthesis of Raphael Roth
 
 // Restriction:
-// - Currently it is only supported that we reduce only one transmission at the time.
-// - Either the same src issues multiple reduction to the same subset of dst (pipelined) or the phyisical links 
-//   from two different reductions are not allowed to cross (sw restriction).
-// - The max number of input is currently fixed to 6. This can be extended but then the bitwidth of the tag_t needs to be extended too.
-//   The tag must be unique e.g. every data piece equipped with this tag needs to be reduced in the same result!
+// - Currently we only support reduction of elements belonging to the same reduction stream.
+//   In AXI term: different beats beloning to the same burst are okay but not two different
+//   burts.
+// - The max number of input is currently fixed to 6. This can be extended but th size of 
+//   the tag_t depends on it.
 // - We only support symmetric configurations e.g. NumInput and NumOutput needs to be equal
 
 // Open Points:
-// - Support unsymmetric configurations!
-// - The status of the reduction logic (e.g. FPU) is currently not evaluated / ignored by the contoller!
+// - The status of the reduction logic (e.g. FPU) is currently not evaluated by the contoller!
 
 `include "common_cells/assertions.svh"
 
@@ -51,21 +55,26 @@ module floo_offload_reduction import floo_pkg::*; #(
   /// Depth / Falltrough of the internal input FIFO
   parameter int unsigned RdFifoDepth            = 2,
   parameter bit          RdFifoFallThrough      = 1'b1,
-  /// Pipeline depth of the external reduction logic (Needs to be at least 1)
+  /// Pipeline depth of the external reduction logic
   parameter int unsigned RdPipelineDepth        = 2,
-  /// Partial buffer size for partial results (used in Generic / Stalling config)
+  /// Partial buffer size for partial results
+  /// used in Generic / Stalling configuration
   parameter int unsigned RdPartialBufferSize    = 2,
-  /// Number of bits used for the reduction Bits (used in the Generic config)
+  /// Number of bits used for the reduction Bits
+  /// used in Generic configuration
   parameter int unsigned RdTagBits              = 4,
-  /// Defines the controller complexity (0 = Simple / 1 = Stalling / 2 = Generic)
+  /// Defines the controller complexity 
+  /// (0 = Simple / 1 = Stalling / 2 = Generic)
   parameter int unsigned RdContollerComplexity  = 2,
   /// Defines if the underlying protocol is AXI
+  /// Required to extract the data from the flit
   parameter bit          RdSupportAxi           = 1'b1,
   /// Axi Configuration
   parameter axi_cfg_t    AxiCfg                 = '0,
   /// Define if we support a bypass or not (for AXI AW header)
   parameter bit          RdEnableBypass         = 1'b1
 ) (
+  /// Control Inputs
   input  logic                                  clk_i,
   input  logic                                  rst_ni,
   input  logic                                  flush_i,
@@ -202,9 +211,9 @@ logic [RdPartialBufferSize-1:0] spyglass_valid;
 
 /* Module Declaration */
 
-// Only generate the Tag if we generate the most generic hardware.
+// The tag is only required for the Generic configuration
+// For each incoming element generate the corresponding tag.
 if(GENERIC == 1'b1) begin : gen_tag_generation
-  // For each incoming element generate the corresponding tag.
   floo_offload_reduction_taggen #(
       .NumRoutes        (NumRoutes),
       .TAG_T            (tag_t),
@@ -222,26 +231,34 @@ end else begin : gen_bypass_tag_generation
   assign fifo_tag = '0;
 end
 
-// Fifo's for all inputs to ack the incoming data and reduce unnecessary backpressure in the system
-for (genvar i = 0; i < NumRoutes; i++) begin : gen_optinal_fifo
-    // Buffer the input inside a (very) small fifo
-    stream_fifo #(
-      .FALL_THROUGH           (RdFifoFallThrough),
-      .DEPTH                  (RdFifoDepth),
-      .T                      (flit_in_out_dir_tag_t)
-    ) i_in_fifo_generic (
-      .clk_i                  (clk_i),
-      .rst_ni                 (rst_ni),
-      .flush_i                (flush_i),
-      .testmode_i             (1'b0),
-      .usage_o                (),
-      .data_i                 ({data_i[i], expected_input_i[i], output_route_i[i], fifo_tag[i]}),
-      .valid_i                (valid_i[i]),
-      .ready_o                (ready_o[i]),
-      .data_o                 (fifo_out_data[i]),
-      .valid_o                (fifo_out_valid[i]),
-      .ready_i                (fifo_out_ready[i])
-    );
+// Fifo's for all inputs to ack the incoming data
+// and to reduce unnecessary backpressure into the system.
+if(RdFifoDepth > 0) begin : gen_input_fifo
+  for (genvar i = 0; i < NumRoutes; i++) begin : gen_routes
+      stream_fifo #(
+        .FALL_THROUGH           (RdFifoFallThrough),
+        .DEPTH                  (RdFifoDepth),
+        .T                      (flit_in_out_dir_tag_t)
+      ) i_in_fifo_generic (
+        .clk_i                  (clk_i),
+        .rst_ni                 (rst_ni),
+        .flush_i                (flush_i),
+        .testmode_i             (1'b0),
+        .usage_o                (),
+        .data_i                 ({data_i[i], expected_input_i[i], output_route_i[i], fifo_tag[i]}),
+        .valid_i                (valid_i[i]),
+        .ready_o                (ready_o[i]),
+        .data_o                 (fifo_out_data[i]),
+        .valid_o                (fifo_out_valid[i]),
+        .ready_i                (fifo_out_ready[i])
+      );
+  end
+end else begin : gen_no_input_fifo
+  for (genvar i = 0; i < NumRoutes; i++) begin : gen_routes
+    assign fifo_out_data[i] = {data_i[i], expected_input_i[i], output_route_i[i], fifo_tag[i]};
+    assign fifo_out_valid[i] = valid_i[i];
+    assign ready_o[i] = fifo_out_ready[i];
+  end
 end
 
 // Controller which runs the hole reduction
@@ -296,7 +313,7 @@ floo_offload_reduction_controller #(
   .ctrl_output_demux_o          (ctrl_demux)
 );
 
-// Generate the MUX to include the partial buffer only if we either use the GENERIC case or the stalling case
+// Generate the MUX to include the partial buffer
 if((GENERIC == 1'b1) || (STALLING == 1'b1)) begin : gen_mux_partial_result
   for (genvar i = 0; i < 2; i++) begin : gen_mux_partial_result_loop
       stream_mux #(
@@ -338,12 +355,12 @@ assign reduction_req_op1_o = merged_data[0].data;
 assign reduction_req_op2_o = merged_data[1].data;
 assign reduction_req_type_o = reduction_scheduled_operation;
 
+// Note: At this position in the dataflow of this file lies the external reduction hardware
+// After some (5) cycles the request turns comes back as response.
+// The external Reduction requires at least 1 cycle to avoid hw-loops!
 
-// Note: At this position in the dataflow of this file lies the external reduction hardware (mostly FPU)!
-// After some (3) cycles the request turns comes back as respons!
-// The external Reduction alg needs at least 1 cycle (to avoid loops)!
-
-// We have fifo's for the tag as the FPU tag is otherwise used
+// We buffer the tag internally rather than pass it to the outside
+// TODO: Add assertion that if "reduction_req_valid_o" is set that both tag are equal!
 if(GENERIC == 1'b1) begin : gen_fifo_for_tag
   fifo_v3 #(
       .FALL_THROUGH     (1'b0),
@@ -358,15 +375,22 @@ if(GENERIC == 1'b1) begin : gen_fifo_for_tag
       .empty_o          (),
       .usage_o          (),
       .data_i           (merged_data[0].tag), 
-      .push_i           (reduction_req_ready_i & reduction_req_valid_o),  // push mask on active fpu req hs
+      .push_i           (reduction_req_ready_i & reduction_req_valid_o),  // active fpu req hs
       .data_o           (reduction_resp_data.tag),
-      .pop_i            (reduction_resp_valid_i & reduction_resp_ready_o) // pop mask on active fpu resp hs
+      .pop_i            (reduction_resp_valid_i & reduction_resp_ready_o) // active fpu resp hs
   );
 end else begin
   assign reduction_resp_data.tag = '0;
 end
 
-// We have fifo's for the mask as the FPU tag is otherwise used
+// We buffer the mask internally rather than pass it to the outside
+// The mask is or-connected because the results are "added"
+// The mask field determins which input element is already
+// reduced in the given element.
+// from partial buffer: more than 1 bit set
+// from input: only 1 bit set
+// TODO: Add assertion that if "reduction_req_valid_o" is set that no bit position is set
+//       in both mask as this would mean we have already added the element once!
 if((GENERIC == 1'b1) || (STALLING == 1'b1)) begin : gen_fifo_for_mask
   fifo_v3 #(
       .FALL_THROUGH     (1'b0),
@@ -380,10 +404,10 @@ if((GENERIC == 1'b1) || (STALLING == 1'b1)) begin : gen_fifo_for_mask
       .full_o           (),
       .empty_o          (),
       .usage_o          (),
-      .data_i           (merged_data[0].mask | merged_data[1].mask), // Or Connect both involved Mask
-      .push_i           (reduction_req_ready_i & reduction_req_valid_o),  // push mask on active fpu req hs
+      .data_i           (merged_data[0].mask | merged_data[1].mask),
+      .push_i           (reduction_req_ready_i & reduction_req_valid_o),  // active fpu req hs
       .data_o           (reduction_resp_data.mask),
-      .pop_i            (reduction_resp_valid_i & reduction_resp_ready_o) // pop mask on active fpu resp hs
+      .pop_i            (reduction_resp_valid_i & reduction_resp_ready_o) // active fpu resp hs
   );
 end else begin
   assign reduction_resp_data.mask = '0;
@@ -414,9 +438,10 @@ assign input_partial_result_buf_data = reduction_resp_data;
 assign fully_reduced_data.data = reduction_resp_data.data;
 assign fully_reduced_data.tag = reduction_resp_data.tag;
 
-// Dynammically fork the data into the coorect output direction
+// Dynammically fork the data into the correct output direction
 // (Currently only 1 output direction is set by the dyn fork. 
-// However in the future we want to have more than 1 output dir and therefor this is already supported)
+// Potentially we could support here a reduce and multicast operation
+// if more than one output is set.
 stream_fork_dynamic #(
   .N_OUP          (NumRoutes)
 ) i_dynamic_fork (
