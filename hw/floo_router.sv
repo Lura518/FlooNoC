@@ -28,9 +28,9 @@ module floo_router
   /// Number of physical channels
   parameter int unsigned NumPhysChannels      = 1,
   /// Depth of input FIFOs
-  parameter int unsigned InFifoDepth [NumVirtChannels-1:0] = '{default: 0},
+  parameter int unsigned InFifoDepth          = 2,
   /// Depth of output FIFOs
-  parameter int unsigned OutFifoDepth [NumVirtChannels-1:0] = '{default: 0},
+  parameter int unsigned OutFifoDepth         = 2,
   /// Routing algorithm
   parameter route_algo_e RouteAlgo            = IdTable,
   /// Parameters, only used for ID-based and XY routing
@@ -126,7 +126,7 @@ module floo_router
 
       (* ungroup *)
       stream_fifo_optimal_wrap #(
-        .Depth  ( InFifoDepth[v] ),
+        .Depth  ( InFifoDepth ),
         .type_t ( flit_t      )
       ) i_stream_fifo (
         .clk_i      ( clk_i         ),
@@ -496,10 +496,10 @@ module floo_router
         );
       end
 
-      if (OutFifoDepth[v] > 0) begin : gen_out_fifo
+      if (OutFifoDepth > 0) begin : gen_out_fifo
         (* ungroup *)
         stream_fifo_optimal_wrap #(
-          .Depth  ( OutFifoDepth[v]  ),
+          .Depth  ( OutFifoDepth  ),
           .type_t ( flit_t        )
         ) i_stream_fifo (
           .clk_i      ( clk_i         ),

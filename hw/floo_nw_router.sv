@@ -26,10 +26,6 @@ module floo_nw_router #(
   parameter int unsigned InFifoDepth                = 0,
   /// Output buffer depth
   parameter int unsigned OutFifoDepth               = 0,
-  /// Input buffer depth reduction
-  parameter int unsigned InFifoDepthReduction       = 0,
-  /// Output buffer depth reduction
-  parameter int unsigned OutFifoDepthReduction      = 0,
   /// Disable illegal connections in router
   /// (only applies for `RouteAlgo == XYRouting`)
   parameter bit          XYRouteOpt                 = 1'b1,
@@ -119,14 +115,6 @@ module floo_nw_router #(
   // Define the size of the Virtual Channel for the narrow router
   localparam int unsigned WideVirtalChannel = (EnCollWideVirtChannel) ? 2 : 1;
 
-  // Define the fifo config for the narrow request port
-  localparam int unsigned InFifoNarrow [NarrowVirtalChannel-1:0] = (EnCollNarrowVirtChannel) ? '{InFifoDepthReduction, InFifoDepth} : '{InFifoDepth};
-  localparam int unsigned OutFifoNarrow [NarrowVirtalChannel-1:0] = (EnCollNarrowVirtChannel) ? '{OutFifoDepthReduction, OutFifoDepth} : '{OutFifoDepth};
-
-  // Define the fifo config for the narrow request port
-  localparam int unsigned InFifoWide [WideVirtalChannel-1:0] = (EnCollWideVirtChannel) ? '{InFifoDepthReduction, InFifoDepth} : '{InFifoDepth};
-  localparam int unsigned OutFifoWide [WideVirtalChannel-1:0] = (EnCollWideVirtChannel) ? '{OutFifoDepthReduction, OutFifoDepth} : '{OutFifoDepth};
-
   typedef logic [AxiCfgN.AddrWidth-1:0] axi_addr_t;
   typedef logic [AxiCfgN.InIdWidth-1:0] axi_narrow_in_id_t;
   typedef logic [AxiCfgN.UserWidth-1:0] axi_narrow_user_t;
@@ -188,8 +176,8 @@ module floo_nw_router #(
     .NumOutput            ( NumOutputs                ),
     .NumPhysChannels      ( 1                         ),
     .NumVirtChannels      ( NarrowVirtalChannel       ),
-    .InFifoDepth          ( InFifoNarrow              ),
-    .OutFifoDepth         ( OutFifoNarrow             ),
+    .InFifoDepth          ( InFifoDepth               ),
+    .OutFifoDepth         ( OutFifoDepth              ),
     .RouteAlgo            ( RouteAlgo                 ),
     .XYRouteOpt           ( XYRouteOpt                ),
     .NumAddrRules         ( NumAddrRules              ),
@@ -300,8 +288,8 @@ module floo_nw_router #(
     .NumRoutes            ( NumRoutes                 ),
     .NumPhysChannels      ( 1                         ),
     .NumVirtChannels      ( WideVirtalChannel         ),
-    .InFifoDepth          ( InFifoWide                ),
-    .OutFifoDepth         ( OutFifoWide               ),
+    .InFifoDepth          ( InFifoDepth               ),
+    .OutFifoDepth         ( OutFifoDepth              ),
     .RouteAlgo            ( RouteAlgo                 ),
     .XYRouteOpt           ( XYRouteOpt                ),
     .NumAddrRules         ( NumAddrRules              ),
