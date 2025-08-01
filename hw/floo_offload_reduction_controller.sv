@@ -230,6 +230,7 @@ logic simple_reduction_ongoing_n;
 // Signal to retire the elements from the buffer
 logic retire_element;
 logic stalling_reduction_ongoing_n;
+logic backpressure_fpu_resp;
 
 /* Module Declaration */
 
