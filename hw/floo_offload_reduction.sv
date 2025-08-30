@@ -335,6 +335,9 @@ assign reduction_req_valid_o = join_operands_valid;
 assign join_operands_ready = reduction_req_ready_i;
 
 // Output the operands here
+// TODO: Introduce Cut here to allow cutting the Offload unit.
+//       Extend the Configuration to allow fo this cut!
+//       Cut the response from the offload unit too!
 assign reduction_req_op1_o = merged_data[0].data;
 assign reduction_req_op2_o = merged_data[1].data;
 assign reduction_req_type_o = reduction_scheduled_operation;
@@ -426,6 +429,10 @@ assign fully_reduced_data.tag = reduction_resp_data.tag;
 // (Currently only 1 output direction is set by the dyn fork. 
 // Potentially we could support here a reduce and multicast operation
 // if more than one output is set.
+
+// TODO: By introducing a cut on these signal used by the multiplexer we could separate
+//       the reduction logic from the rest of the router (timing wise at least).
+//       Additionally the input fifo's would need to be configured as not fall through!
 stream_fork_dynamic #(
   .N_OUP          (NumRoutes)
 ) i_dynamic_fork (

@@ -156,6 +156,10 @@ typedef logic [AxiCfg.DataWidth/8-1:0] axi_strb_t;
 `FLOO_TYPEDEF_AXI_CHAN_ALL(axi, req, rsp, axi, AxiCfg, hdr_t)
 
 // Typedef to encompass an ongoing reduction in the buffer
+// TODO:    Try to store only the header inside the buffer_t and not the hole flit!
+//          It looks like the Synth can not optimize away the unused FlipFlop.
+//          I assumed this but I think it won't do it.
+//          It will get an uglier code but It can save some Area!
 typedef struct packed {
     // Copy (one) flit for all metadata in the package
     flit_t                      header;
@@ -331,6 +335,10 @@ assign backpressure_fpu_resp = reduction_resp_valid_i & (~reduction_resp_ready_i
 // are priorited over the ones from the second, then from the third etc.
 // This only happens if we use the generic configuration as the stalling one has only
 // a single buffer entry (b.c. it works only on one reduction at the time).
+
+// TODO: optimize the timing for the generic controller here. The "locked_d" variable serializes
+//       the evaluation of the meta data buffer. If we remove this and introduce an priority
+//       arbiter at the output to select the most "pressing" reduction we could restore the timing
 if(GENERIC || STALLING) begin : gen_controller_stalling_generic
     always_comb begin
         // Init all Vars
